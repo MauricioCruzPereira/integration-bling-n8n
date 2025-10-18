@@ -1,0 +1,34 @@
+# Variáveis de ambiente
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
+package-lock.json
+npm-debug.log
+yarn-error.log
+
+# Logs
+logs/
+*.log
+bot/logs/
+
+# Docker
+*.tar.gz
+
+# Temporários
+temp_*
+teste.*
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# N8N
+n8n/.n8n/
+n8n/database.sqlite

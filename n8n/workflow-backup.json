@@ -1,0 +1,590 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.bling.com.br/Api/v3/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "1.0"
+            },
+            {
+              "name": "Authorization",
+              "value": "Basic OTk5MGUxMjc4NzRjODc3OGE3NzAwYjIwODRkN2I0YmY2YjY2NDZhZTpiMjk5ZDBjNzcxNTI2MGU2MDE5MmY4N2QzNzY0ZDA1YTJmNDEwNDQzY2Y1Zjc2OTkxOTAzMjZiZDUxOTQ="
+            },
+            {
+              "name": "Cookie",
+              "value": "PHPSESSID=0jsjfmmdrubaavk30khaa3rm2p"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "refresh_token"
+            },
+            {
+              "name": "refresh_token",
+              "value": "={{ $('Get a row').item.json.refresh_token }}"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "name": "Enviar ao Bling",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -400,
+        2128
+      ],
+      "id": "85863183-0db1-4772-9765-5c5e9077c4ae"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -800,
+        2128
+      ],
+      "id": "5ea3a03f-024e-4f70-a213-531ffab0edf8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "integrations",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "name",
+              "keyValue": "bling"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -592,
+        2128
+      ],
+      "id": "ff7db843-42ec-4494-b76f-fbef0af03821",
+      "name": "Get a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "TiCB9coY8HxdkWby",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "integrations",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Get a row').item.json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "token",
+              "fieldValue": "={{ $json.access_token }}"
+            },
+            {
+              "fieldId": "refresh_token",
+              "fieldValue": "={{ $json.refresh_token }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        2128
+      ],
+      "id": "5a9372d8-e651-433a-9a7a-cbb5ecc07840",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "TiCB9coY8HxdkWby",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zapi-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d418ebf7-ceae-4824-bdd5-54874c2884a8",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1344,
+        2560
+      ],
+      "webhookId": "29ed1391-1897-4256-b7fb-a11a33dcf77f"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "if (!$json.body?.products || !Array.isArray($json.body.products)) {\n  throw new Error('❌ Nenhum produto no payload');\n}\nif (!$json.body?.integrations || !Array.isArray($json.body.integrations) || $json.body.integrations.length === 0) {\n  throw new Error('❌ Nenhuma integração no payload');\n}\n\nconst products = $json.body.products;\nconst integrations = $json.body.integrations;\n\nconsole.log('✅ Produtos:', products.length);\nconsole.log('✅ Integrações:', integrations.length);\n\nreturn {\n  chatId: $json.chatId || null,\n  timestamp: $json.timestamp || Date.now(),\n  products: products,\n  integrations: integrations\n};"
+      },
+      "id": "0f685b67-2a60-439a-b1f7-a4c6397704be",
+      "name": "Validar Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1152,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const products = $json.products;\nconst integrations = $json.integrations;\n\nconst items = [];\n\nfor (const product of products) {\n  for (const integration of integrations) {\n    items.push({\n      json: {\n        product: product,\n        integrationId: integration.id,\n        integrationName: integration.name,\n        integrationToken: integration.token\n      }\n    });\n  }\n}\n\nconsole.log('📦 Total:', items.length);\nreturn items;"
+      },
+      "id": "cc586943-ba1c-434d-9ce3-b3b07449402c",
+      "name": "Preparar Envios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const p = $json.product;\nconst integrationId = $json.integrationId;\nconst integrationName = $json.integrationName;\nconst integrationToken = $json.integrationToken;\n\nlet variacoes = null;\nif (p.variacoes && Array.isArray(p.variacoes) && p.variacoes.length > 0) {\n  variacoes = p.variacoes;\n}\n\nreturn {\n  nome: p.nome || '',\n  codigo: p.codigo || '',\n  preco: parseFloat(p.preco) || 0,\n  tipo: p.tipo || 'P',\n  situacao: p.situacao || 'A',\n  formato: p.formato || (variacoes ? 'V' : 'S'),\n  unidade: p.unidade || 'UN',\n  pesoLiquido: parseFloat(p.pesoLiquido) || 0,\n  pesoBruto: parseFloat(p.pesoBruto) || 0,\n  marca: p.marca || '',\n  linkExterno: p.linkExterno || '',\n  altura: parseFloat(p.altura) || 0,\n  largura: parseFloat(p.largura) || 0,\n  profundidade: parseFloat(p.profundidade) || 0,\n  variacoes: variacoes,\n  hasVariations: variacoes !== null,\n  integrationId: integrationId,\n  integrationName: integrationName,\n  integrationToken: integrationToken\n};"
+      },
+      "id": "d2220354-fa7e-4b33-ae0a-9db017fac588",
+      "name": "Formatar Produto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -752,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "has-var",
+              "leftValue": "={{ $json.hasVariations }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ab50b769-8eac-4a14-a716-3bb5b6fe5abd",
+      "name": "Tem Variações?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $json;\n\nif (!p.variacoes || !Array.isArray(p.variacoes) || p.variacoes.length === 0) {\n  throw new Error('❌ Sem variações');\n}\n\nconst variacoesArray = p.variacoes.map(v => ({\n  nome: `${v.tipo}: ${v.valor}`,\n  codigo: v.codigo || `${p.codigo}-${v.valor}`,\n  preco: parseFloat(v.preco) || parseFloat(p.preco) || 0,\n  tipo: \"P\",\n  situacao: \"A\",\n  formato: \"S\",\n  unidade: p.unidade || \"UN\",\n  pesoLiquido: parseFloat(v.peso) || parseFloat(p.pesoLiquido) || 0,\n  pesoBruto: parseFloat(p.pesoBruto) || 0,\n  dimensoes: {\n    largura: parseFloat(p.largura) || 0,\n    altura: parseFloat(p.altura) || 0,\n    profundidade: parseFloat(p.profundidade) || 0,\n    unidadeMedida: 1\n  },\n  ...(p.marca && { marca: p.marca }),\n  ...(p.linkExterno && { linkExterno: p.linkExterno }),\n  // ✅ SÓ ENVIA GTIN SE FOR VÁLIDO\n  //...(v.gtin && v.gtin.length === 13 && !isNaN(v.gtin) && { gtin: v.gtin })\n}));\n\nconst productBody = {\n  nome: p.nome,\n  codigo: p.codigo,\n  tipo: \"P\",\n  situacao: \"A\",\n  formato: \"V\",\n  variacao: {\n    nome: p.variacoes[0].tipo || \"Tamanho\"\n  },\n  variacoes: variacoesArray\n};\n\nconsole.log('📦 Produto:', p.nome);\nconsole.log('🔢 Variações:', variacoesArray.length);\nconsole.log('🏷️ Tipo:', p.variacoes[0].tipo);\n\nreturn {\n  productBody: productBody,\n  productCode: p.codigo,\n  productName: p.nome,\n  integrationId: p.integrationId,\n  integrationName: p.integrationName,\n  integrationToken: p.integrationToken\n};"
+      },
+      "id": "ff66ce66-d935-4d51-b685-bcff9263ce57",
+      "name": "JSON com Variações",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -336,
+        2464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $json;\n\nconst productBody = {\n  nome: p.nome,\n  codigo: p.codigo,\n  preco: p.preco,\n  tipo: p.tipo,\n  situacao: p.situacao,\n  formato: \"S\",\n  unidade: p.unidade,\n  pesoLiquido: p.pesoLiquido,\n  pesoBruto: p.pesoBruto,\n  dimensoes: {\n    largura: p.largura,\n    altura: p.altura,\n    profundidade: p.profundidade,\n    unidadeMedida: 1\n  },\n  ...(p.marca && { marca: p.marca }),\n  ...(p.linkExterno && { linkExterno: p.linkExterno })\n};\n\nreturn {\n  productBody: productBody,\n  productCode: p.codigo,\n  productName: p.nome,\n  integrationId: p.integrationId,\n  integrationName: p.integrationName,\n  integrationToken: p.integrationToken\n};"
+      },
+      "id": "54f67fb1-1b74-46f5-83cd-a26dfd7c5bed",
+      "name": "JSON Simples",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -336,
+        2656
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "meta-code",
+              "name": "_productCode",
+              "value": "={{ $json.productCode }}",
+              "type": "string"
+            },
+            {
+              "id": "meta-name",
+              "name": "_productName",
+              "value": "={{ $json.productName }}",
+              "type": "string"
+            },
+            {
+              "id": "meta-int-id",
+              "name": "_integrationId",
+              "value": "={{ $json.integrationId }}",
+              "type": "string"
+            },
+            {
+              "id": "meta-int-name",
+              "name": "_integrationName",
+              "value": "={{ $json.integrationName }}",
+              "type": "string"
+            },
+            {
+              "id": "body",
+              "name": "productBody",
+              "value": "={{ $json.productBody }}",
+              "type": "object"
+            },
+            {
+              "id": "token",
+              "name": "integrationToken",
+              "value": "={{ $json.integrationToken }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8e79b0c4-7703-4332-998a-b06d578b4220",
+      "name": "Guardar Metadados",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -128,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.bling.com.br/Api/v3/produtos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.integrationToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.productBody }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "d0d5006f-b250-4878-9b10-e4de42ebb88f",
+      "name": "Enviar para Bling",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        80,
+        2560
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const allData = $input.item.json;\n\n// Extrai resposta do Bling\nlet blingResponse = allData;\n\nif (typeof blingResponse === 'string') {\n  try {\n    blingResponse = JSON.parse(blingResponse);\n  } catch (e) {\n    console.error('❌ Parse error:', e.message);\n  }\n}\n\nif (Array.isArray(blingResponse) && blingResponse.length > 0) {\n  blingResponse = blingResponse[0];\n}\n\n// RECUPERA METADADOS QUE FORAM GUARDADOS NO NÓ SET\nconst productCode = allData._productCode || 'N/A';\nconst productName = allData._productName || 'N/A';\nconst integrationId = allData._integrationId || null;\nconst integrationName = allData._integrationName || 'Desconhecida';\n\nlet status = 'erro';\nlet message = 'Erro desconhecido';\nlet blingId = null;\nlet variationsSaved = 0;\n\nconsole.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');\nconsole.log('🔍 PRODUTO:', productName);\nconsole.log('📦 Código:', productCode);\nconsole.log('🔗 Integração:', integrationName);\n\ntry {\n  if (blingResponse && blingResponse.data && blingResponse.data.id) {\n    status = 'sucesso';\n    blingId = blingResponse.data.id;\n    message = 'Produto cadastrado';\n    \n    if (blingResponse.data.variations?.saved) {\n      variationsSaved = blingResponse.data.variations.saved.length;\n      if (variationsSaved > 0) {\n        message = `Produto com ${variationsSaved} variação(ões)`;\n      }\n    }\n    \n    console.log('✅ SUCESSO! ID:', blingId);\n  }\n  else if (blingResponse && blingResponse.error) {\n    message = blingResponse.error.message || 'Erro';\n    \n    if (blingResponse.error.type === 'validation' && blingResponse.error.fields) {\n      const fieldErrors = [];\n      \n      blingResponse.error.fields.forEach(field => {\n        if (field.code === 4) status = 'duplicado';\n        \n        if (field.collection && Array.isArray(field.collection)) {\n          field.collection.forEach(varError => {\n            if (varError.collection) {\n              varError.collection.forEach(err => {\n                if (err.code === 4) status = 'duplicado';\n                fieldErrors.push(`[Var ${varError.index + 1}] ${err.msg}`);\n              });\n            }\n          });\n        } else if (field.msg) {\n          fieldErrors.push(field.msg);\n        }\n      });\n      \n      if (fieldErrors.length > 0) message = fieldErrors.join(' | ');\n    }\n    \n    const msgLower = message.toLowerCase();\n    if (msgLower.includes('já existe') || msgLower.includes('duplicado')) {\n      status = 'duplicado';\n    }\n    \n    console.log('⚠️', status.toUpperCase());\n  }\n  else if (allData.statusCode && allData.statusCode >= 400) {\n    message = `HTTP ${allData.statusCode}`;\n    console.log('❌ ERROR');\n  }\n  else {\n    message = 'Resposta inesperada';\n    console.log('⚠️ RESPOSTA INESPERADA');\n  }\n} catch (e) {\n  status = 'erro';\n  message = `Exceção: ${e.message}`;\n  console.error('💥', e.message);\n}\n\nconsole.log('📌', status.toUpperCase());\nconsole.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\\n');\n\nreturn {\n  status: status,\n  productCode: productCode,\n  productName: productName,\n  blingId: blingId,\n  variationsSaved: variationsSaved,\n  message: message,\n  integrationId: integrationId,\n  integrationName: integrationName,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "c6ce8c97-7716-48a7-b4e6-54567f260469",
+      "name": "Processar Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "be7f8161-9e11-4323-b76a-03972c9728bb",
+      "name": "Agregar",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        496,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// CRIAR RELATÓRIO - CORRIGIDO\n// ============================================\n// Cole este código no nó \"Criar Relatório\"\n\nconst items = $input.all();\n\nlet sucessos = 0;\nlet erros = 0;\nlet duplicados = 0;\nconst detalhes = [];\nconst sucessosLista = [];\nconst duplicadosLista = [];\nconst errosLista = [];\nconst porIntegracao = {};\n\nitems.forEach(item => {\n  // ===== CORREÇÃO: Extrai dados corretamente =====\n  let d = item.json;\n  \n  // Se os dados estiverem dentro de \"data\", extrai\n  if (d.data && Array.isArray(d.data) && d.data.length > 0) {\n    d = d.data[0];\n  }\n  \n  console.log('📦 Processando item:', d.productName || 'N/A', '| Status:', d.status);\n  \n  if (!porIntegracao[d.integrationName]) {\n    porIntegracao[d.integrationName] = { sucessos: 0, erros: 0, duplicados: 0 };\n  }\n  \n  const detalhe = {\n    codigo: d.productCode,\n    nome: d.productName,\n    status: d.status,\n    blingId: d.blingId,\n    variationsSaved: d.variationsSaved || 0,\n    mensagem: d.message,\n    integrationName: d.integrationName\n  };\n  \n  if (d.status === 'sucesso') {\n    sucessos++;\n    porIntegracao[d.integrationName].sucessos++;\n    sucessosLista.push(detalhe);\n  } else if (d.status === 'duplicado') {\n    duplicados++;\n    porIntegracao[d.integrationName].duplicados++;\n    duplicadosLista.push(detalhe);\n  } else {\n    erros++;\n    porIntegracao[d.integrationName].erros++;\n    errosLista.push(detalhe);\n  }\n  detalhes.push(detalhe);\n});\n\nconst total = items.length;\nconst taxaSucesso = total > 0 ? ((sucessos / total) * 100).toFixed(2) : '0.00';\n\nconsole.log('\\n╔═══════════════════════════════════╗');\nconsole.log('║      📊 RELATÓRIO FINAL           ║');\nconsole.log('╚═══════════════════════════════════╝');\nconsole.log('✅ Sucessos:', sucessos);\nconsole.log('🔄 Duplicados:', duplicados);\nconsole.log('❌ Erros:', erros);\nconsole.log('📈 Taxa de sucesso:', taxaSucesso + '%\\n');\n\nreturn {\n  success: erros === 0,\n  timestamp: new Date().toISOString(),\n  resumo: {\n    total: total,\n    totalIntegracoes: Object.keys(porIntegracao).length,\n    totalEnvios: total,\n    sucessos: sucessos,\n    duplicados: duplicados,\n    erros: erros,\n    taxaSucesso: `${taxaSucesso}%`\n  },\n  detalhes: {\n    todos: detalhes,\n    sucessos: sucessosLista,\n    duplicados: duplicadosLista,\n    erros: errosLista,\n    porIntegracao: porIntegracao\n  }\n};"
+      },
+      "id": "500787c4-e993-4844-b4be-4a6bbf100ed8",
+      "name": "Criar Relatório",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "87f3448b-638f-4b63-ae44-a3978aab88bf",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        912,
+        2560
+      ]
+    }
+  ],
+  "connections": {
+    "Enviar ao Bling": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a row": {
+      "main": [
+        [
+          {
+            "node": "Enviar ao Bling",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validar Dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Dados": {
+      "main": [
+        [
+          {
+            "node": "Preparar Envios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Envios": {
+      "main": [
+        [
+          {
+            "node": "Formatar Produto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Produto": {
+      "main": [
+        [
+          {
+            "node": "Tem Variações?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem Variações?": {
+      "main": [
+        [
+          {
+            "node": "JSON com Variações",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "JSON Simples",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSON com Variações": {
+      "main": [
+        [
+          {
+            "node": "Guardar Metadados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSON Simples": {
+      "main": [
+        [
+          {
+            "node": "Guardar Metadados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Metadados": {
+      "main": [
+        [
+          {
+            "node": "Enviar para Bling",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar para Bling": {
+      "main": [
+        [
+          {
+            "node": "Processar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar Resposta": {
+      "main": [
+        [
+          {
+            "node": "Agregar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar": {
+      "main": [
+        [
+          {
+            "node": "Criar Relatório",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Relatório": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f5c066a6e623e96e87aa6f35c0d64b1b3fb846f0166c09d1f3e46bf76c493c32"
+  }
+}

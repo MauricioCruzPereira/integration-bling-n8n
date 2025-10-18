@@ -1,0 +1,50 @@
+services:
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    container_name: telegram-product-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      WEBHOOK_URL: http://n8n:5678/webhook/zapi-webhook
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+    depends_on:
+      - n8n
+    networks:
+      - app-network
+    volumes:
+      - ./bot/logs:/app/logs
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n-automation
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-admin123}
+      N8N_HOST: 0.0.0.0
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://n8n:5678/
+      GENERIC_TIMEZONE: America/Sao_Paulo
+      TZ: America/Sao_Paulo
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n:/backup
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  n8n_data:
