@@ -49,6 +49,62 @@ async function getActiveIntegrations() {
     }
 }
 
+// ============================================
+// MIDDLEWARE DE AUTORIZAÇÃO
+// ============================================
+async function checkAuthorization(msg) {
+    const userId = msg.from.id;
+    const username = msg.from.username || 'sem username';
+    const name = msg.from.first_name || 'usuário';
+    const chatId = msg.chat.id;
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📱 Acesso de:');
+    console.log('   ID:', userId);
+    console.log('   Username:', username);
+    console.log('   Nome:', name);
+
+    try {
+        const { data, error } = await supabase
+            .from('numero_telefone_liberado')
+            .select('*')
+            .eq('numero', userId.toString())
+            .eq('ativo', true)
+            .single();
+        console.log('dataSupBaseUsuario',data);
+        if (error && error.code === 'PGRST116') {
+            console.log('❌ Usuário não autorizado');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+            await bot.sendMessage(chatId,
+                '🚫 *Usuário não autorizado*\n\n' +
+                'Você não tem permissão para usar este bot.\n\n' +
+                '📱 Seu ID: `' + userId + '`\n\n' +
+                '💡 Envie este ID para o administrador liberar seu acesso.',
+                { parse_mode: 'Markdown' }
+            );
+            return false;
+        }
+
+        if (error) throw error;
+
+        console.log('✅ Autorizado:', data.nome || name);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        return true;
+
+    } catch (error) {
+        console.error('❌ Erro na verificação:', error);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        await bot.sendMessage(chatId,
+            '❌ *Erro ao verificar permissões*\n\n' +
+            'Tente novamente mais tarde.',
+            { parse_mode: 'Markdown' }
+        );
+        return false;
+    }
+}
+
 function resetUserState(userId) {
     userStates[userId] = { step: 'initial', lastInteraction: Date.now() };
 }
@@ -93,16 +149,14 @@ function fixEncoding(text) {
     }
 }
 
-// Substitua esta parte do código no bot:
 function groupProductsByCode(rows) {
     const grouped = {};
-    const seenVariations = new Set(); // ← ADICIONAR
+    const seenVariations = new Set();
 
     rows.forEach(row => {
         const codigo = row.codigo;
         const ehPai = (row.ehPai || '').toUpperCase();
 
-        // Validação básica
         if (!codigo || codigo.trim() === '') {
             console.warn('⚠️ Linha sem código ignorada');
             return;
@@ -119,14 +173,12 @@ function groupProductsByCode(rows) {
         if (ehPai === 'NAO' && row.variacaoTipo && row.variacaoValor) {
             const codigoPai = row.codigo.split('-')[0];
 
-            // ✅ VALIDAÇÃO: Ignorar se variacaoValor estiver vazio ou inválido
             const valorVariacao = row.variacaoValor.trim();
             if (!valorVariacao || valorVariacao === '' || valorVariacao === row.variacaoTipo) {
                 console.warn('⚠️ Variação inválida ignorada:', row.variacaoCodigo);
                 return;
             }
 
-            // ✅ VALIDAÇÃO: Verificar duplicatas
             const variacaoKey = `${codigoPai}-${row.variacaoTipo}-${valorVariacao}`;
             if (seenVariations.has(variacaoKey)) {
                 console.warn('⚠️ Variação duplicada ignorada:', variacaoKey);
@@ -142,7 +194,7 @@ function groupProductsByCode(rows) {
                         preco: row.preco,
                         tipo: row.tipo,
                         situacao: row.situacao,
-                        formato: 'V', // ← Forçar V
+                        formato: 'V',
                         unidade: row.unidade,
                         pesoLiquido: row.pesoLiquido,
                         pesoBruto: row.pesoBruto,
@@ -169,7 +221,6 @@ function groupProductsByCode(rows) {
         }
     });
 
-    // ✅ LOG de debug
     const result = Object.values(grouped);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📦 Produtos agrupados:', result.length);
@@ -438,14 +489,37 @@ async function showMainMenu(chatId, name) {
     setUserState(chatId, 'awaiting_menu_choice');
 }
 
+// ============================================
+// HANDLERS COM AUTORIZAÇÃO
+// ============================================
+
 bot.onText(/\/start|\/menu/i, async (msg) => {
+    if (!await checkAuthorization(msg)) return;
+
     const name = msg.from.first_name || 'usuário';
     await showMainMenu(msg.chat.id, name);
+});
+
+bot.onText(/\/meuid/i, async (msg) => {
+    const userId = msg.from.id;
+    const username = msg.from.username || 'sem username';
+    const name = msg.from.first_name || 'usuário';
+
+    await bot.sendMessage(msg.chat.id,
+        '📱 *Suas Informações*\n\n' +
+        '🆔 User ID: `' + userId + '`\n' +
+        '👤 Nome: ' + name + '\n' +
+        '📝 Username: @' + username + '\n\n' +
+        '💡 Envie este ID para o administrador liberar seu acesso.',
+        { parse_mode: 'Markdown' }
+    );
 });
 
 bot.on('message', async (msg) => {
     if (msg.text && msg.text.startsWith('/')) return;
     if (msg.document) return;
+
+    if (!await checkAuthorization(msg)) return;
 
     const chatId = msg.chat.id;
     const userState = getUserState(chatId);
@@ -545,6 +619,8 @@ bot.on('message', async (msg) => {
 });
 
 bot.on('document', async (msg) => {
+    if (!await checkAuthorization(msg)) return;
+
     const chatId = msg.chat.id;
     const userState = getUserState(chatId);
 
