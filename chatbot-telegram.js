@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const dotenv = require('dotenv');
+const iconv = require('iconv-lite');
 
 dotenv.config();
 
@@ -49,62 +50,6 @@ async function getActiveIntegrations() {
     }
 }
 
-// ============================================
-// MIDDLEWARE DE AUTORIZAÇÃO
-// ============================================
-async function checkAuthorization(msg) {
-    const userId = msg.from.id;
-    const username = msg.from.username || 'sem username';
-    const name = msg.from.first_name || 'usuário';
-    const chatId = msg.chat.id;
-
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📱 Acesso de:');
-    console.log('   ID:', userId);
-    console.log('   Username:', username);
-    console.log('   Nome:', name);
-
-    try {
-        const { data, error } = await supabase
-            .from('numero_telefone_liberado')
-            .select('*')
-            .eq('numero', userId.toString())
-            .eq('ativo', true)
-            .single();
-        console.log('dataSupBaseUsuario',data);
-        if (error && error.code === 'PGRST116') {
-            console.log('❌ Usuário não autorizado');
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-            await bot.sendMessage(chatId,
-                '🚫 *Usuário não autorizado*\n\n' +
-                'Você não tem permissão para usar este bot.\n\n' +
-                '📱 Seu ID: `' + userId + '`\n\n' +
-                '💡 Envie este ID para o administrador liberar seu acesso.',
-                { parse_mode: 'Markdown' }
-            );
-            return false;
-        }
-
-        if (error) throw error;
-
-        console.log('✅ Autorizado:', data.nome || name);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-        return true;
-
-    } catch (error) {
-        console.error('❌ Erro na verificação:', error);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-        await bot.sendMessage(chatId,
-            '❌ *Erro ao verificar permissões*\n\n' +
-            'Tente novamente mais tarde.',
-            { parse_mode: 'Markdown' }
-        );
-        return false;
-    }
-}
-
 function resetUserState(userId) {
     userStates[userId] = { step: 'initial', lastInteraction: Date.now() };
 }
@@ -130,159 +75,289 @@ async function downloadTelegramFile(fileId) {
     return tempPath;
 }
 
-function processSpreadsheet(filePath) {
-    console.log('📊 Processando planilha...');
-    const workbook = XLSX.readFile(filePath, { raw: false, defval: '', codepage: 65001 });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(worksheet, { raw: false, defval: '', blankrows: false });
-    console.log('✅ Processado:', data.length, 'linhas');
-    return data;
-}
-
 function fixEncoding(text) {
-    if (!text) return text;
+    if (!text || typeof text !== 'string') return text;
+    
     try {
-        return Buffer.from(text, 'latin1').toString('utf8');
+        const buffer = Buffer.from(text, 'binary');
+        let decoded = iconv.decode(buffer, 'utf8');
+        
+        if (decoded.includes('�')) {
+            decoded = iconv.decode(buffer, 'latin1');
+        }
+        
+        if (decoded.includes('�')) {
+            decoded = iconv.decode(buffer, 'win1252');
+        }
+        
+        decoded = decoded.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+        decoded = decoded.replace(/\s+/g, ' ').trim();
+        
+        return decoded;
     } catch (e) {
+        console.error('❌ Erro ao corrigir encoding:', e.message);
         return text;
     }
 }
 
+function processSpreadsheet(filePath) {
+    console.log('📊 Processando planilha...');
+    
+    const workbook = XLSX.readFile(filePath, { 
+        raw: false, 
+        defval: '', 
+        codepage: 65001 
+    });
+    
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet, { 
+        raw: false, 
+        defval: '', 
+        blankrows: false 
+    });
+    
+    console.log('✅ Linhas lidas:', data.length);
+    
+    const fixedData = data.map((row, index) => {
+        const fixedRow = {};
+        
+        Object.keys(row).forEach(key => {
+            const value = row[key];
+            
+            if (typeof value === 'string') {
+                const textFields = ['nome', 'marca', 'descricaoCurta', 'descricaoCompleta', 'categoria', 'variacaoNome', 'fornecedorNome'];
+                fixedRow[key] = textFields.includes(key) ? fixEncoding(value) : value.trim();
+            } else {
+                fixedRow[key] = value;
+            }
+        });
+        
+        if (index < 3) {
+            console.log(`📦 Linha ${index + 1}:`, {
+                codigo: fixedRow.codigo,
+                nome: fixedRow.nome?.substring(0, 50),
+                variacaoNome: fixedRow.variacaoNome || 'produto principal'
+            });
+        }
+        
+        return fixedRow;
+    });
+    
+    console.log('✅ Processado:', fixedData.length, 'linhas');
+    return fixedData;
+}
+
 function groupProductsByCode(rows) {
     const grouped = {};
-    const seenVariations = new Set();
 
-    rows.forEach(row => {
-        const codigo = row.codigo;
-        const ehPai = (row.ehPai || '').toUpperCase();
+    rows.forEach((row, index) => {
+        const codigo = (row.codigo || '').toString().trim();
 
-        if (!codigo || codigo.trim() === '') {
-            console.warn('⚠️ Linha sem código ignorada');
+        if (!codigo) {
+            console.warn(`⚠️ Linha ${index + 1} sem código`);
             return;
         }
 
-        if (ehPai === 'SIM' || !grouped[codigo]) {
-            if (!grouped[codigo]) {
-                grouped[codigo] = { produto: row, variacoes: [] };
-            } else if (ehPai === 'SIM') {
-                grouped[codigo].produto = row;
+        // Extrai código pai (antes do primeiro hífen nas variações)
+        const codigoPai = codigo.split('-')[0];
+
+        // Se não existe o grupo, cria (primeira linha = produto pai)
+        if (!grouped[codigoPai]) {
+            grouped[codigoPai] = {
+                produto: row,
+                variacoes: []
+            };
+            console.log(`✅ PRODUTO PAI: ${codigoPai} - ${row.nome?.substring(0, 40)}...`);
+        } else {
+            // Linhas seguintes com mesmo código pai = variações
+            const variacaoNome = (row.variacaoNome || '').trim();
+            
+            if (variacaoNome) {
+                grouped[codigoPai].variacoes.push({
+                    row: row,
+                    variacaoNome: variacaoNome
+                });
+                console.log(`  ✅ Variação: ${variacaoNome}`);
+            } else {
+                console.warn(`⚠️ Linha ${index + 1}: variação sem nome (campo variacaoNome vazio)`);
             }
-        }
-
-        if (ehPai === 'NAO' && row.variacaoTipo && row.variacaoValor) {
-            const codigoPai = row.codigo.split('-')[0];
-
-            const valorVariacao = row.variacaoValor.trim();
-            if (!valorVariacao || valorVariacao === '' || valorVariacao === row.variacaoTipo) {
-                console.warn('⚠️ Variação inválida ignorada:', row.variacaoCodigo);
-                return;
-            }
-
-            const variacaoKey = `${codigoPai}-${row.variacaoTipo}-${valorVariacao}`;
-            if (seenVariations.has(variacaoKey)) {
-                console.warn('⚠️ Variação duplicada ignorada:', variacaoKey);
-                return;
-            }
-            seenVariations.add(variacaoKey);
-
-            if (!grouped[codigoPai]) {
-                grouped[codigoPai] = {
-                    produto: {
-                        nome: row.nome.split(' - ')[0],
-                        codigo: codigoPai,
-                        preco: row.preco,
-                        tipo: row.tipo,
-                        situacao: row.situacao,
-                        formato: 'V',
-                        unidade: row.unidade,
-                        pesoLiquido: row.pesoLiquido,
-                        pesoBruto: row.pesoBruto,
-                        marca: row.marca,
-                        linkExterno: row.linkExterno,
-                        altura: row.altura,
-                        largura: row.largura,
-                        profundidade: row.profundidade
-                    },
-                    variacoes: []
-                };
-            }
-
-            grouped[codigoPai].variacoes.push({
-                tipo: row.variacaoTipo,
-                valor: valorVariacao,
-                codigo: row.variacaoCodigo || row.codigo,
-                preco: parseFloat(row.variacaoPreco) || parseFloat(row.preco) || 0,
-                estoque: parseInt(row.variacaoEstoque) || 0,
-                sku: row.variacaoSku || '',
-                peso: parseFloat(row.variacaoPeso) || parseFloat(row.pesoLiquido) || 0,
-                gtin: row.gtin || ''
-            });
         }
     });
 
     const result = Object.values(grouped);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📦 Produtos agrupados:', result.length);
+    console.log('┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓');
+    console.log(`📦 Produtos: ${result.length}`);
     result.forEach(g => {
         console.log(`   • ${g.produto.codigo}: ${g.variacoes.length} variação(ões)`);
         if (g.variacoes.length > 0) {
             g.variacoes.forEach((v, i) => {
-                console.log(`      ${i + 1}. ${v.tipo}: ${v.valor}`);
+                console.log(`      ${i + 1}. ${v.variacaoNome}`);
             });
         }
     });
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    console.log('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n');
 
     return result;
 }
 
-function processVariations(variacoesString) {
-    if (!variacoesString || variacoesString.trim() === '') return null;
-    try {
-        const variations = variacoesString.split(';').map(v => {
-            const parts = v.split(':');
-            return {
-                tipo: parts[0] ? parts[0].trim() : '',
-                valor: parts[1] ? parts[1].trim() : '',
-                codigo: parts[2] ? parts[2].trim() : '',
-                preco: parseFloat(parts[3]) || 0
-            };
-        }).filter(v => v.tipo && v.valor);
-        return variations.length > 0 ? variations : null;
-    } catch (error) {
-        console.error('❌ Erro variações:', error);
-        return null;
-    }
-}
-
 function formatProduct(group) {
-    const row = group.produto;
-    let variations = null;
+    const produtoPai = group.produto;
+    const variacoes = group.variacoes;
 
-    if (group.variacoes && group.variacoes.length > 0) {
-        variations = group.variacoes;
-    } else if (row.variacoes) {
-        variations = processVariations(row.variacoes);
+    // Parse de imagens adicionais
+    let imagensExternas = [];
+    if (produtoPai.imagensAdicionaisUrls) {
+        imagensExternas = produtoPai.imagensAdicionaisUrls.split('|').filter(url => url.trim());
     }
 
-    return {
-        nome: fixEncoding(row.nome) || '',
-        codigo: row.codigo || '',
-        preco: parseFloat(row.preco) || 0,
-        tipo: row.tipo || 'P',
-        situacao: row.situacao || 'A',
-        formato: row.formato || (variations ? 'V' : 'S'),
-        unidade: row.unidade || 'UN',
-        pesoLiquido: parseFloat(row.pesoLiquido) || 0,
-        pesoBruto: parseFloat(row.pesoBruto) || 0,
-        marca: fixEncoding(row.marca) || '',
-        linkExterno: row.linkExterno || '',
-        altura: parseFloat(row.altura) || 0,
-        largura: parseFloat(row.largura) || 0,
-        profundidade: parseFloat(row.profundidade) || 0,
-        variacoes: variations
+    // Dados base do produto (COMPLETO)
+    const product = {
+        nome: fixEncoding(produtoPai.nome) || '',
+        codigo: produtoPai.codigo || '',
+        preco: parseFloat(produtoPai.preco) || 0,
+        tipo: produtoPai.tipo || 'P',
+        situacao: produtoPai.situacao || 'A',
+        formato: variacoes.length > 0 ? 'V' : 'S',
+        unidade: produtoPai.unidade || 'UN',
+        pesoLiquido: parseFloat(produtoPai.pesoLiquido) || 0,
+        pesoBruto: parseFloat(produtoPai.pesoBruto) || 0,
+        volumes: parseInt(produtoPai.volumes) || 1,
+        itensPorCaixa: parseInt(produtoPai.itensPorCaixa) || 1,
+        gtin: produtoPai.gtin || '',
+        gtinEmbalagem: produtoPai.gtinTributario || '',
+        tipoProducao: produtoPai.producao || 'P',
+        condicao: produtoPai.situacao === 'I' ? 0 : 1,
+        freteGratis: produtoPai.freteGratis === 'Sim',
+        marca: fixEncoding(produtoPai.marca) || '',
+        descricaoCurta: fixEncoding(produtoPai.descricaoCurta) || '',
+        descricaoComplementar: fixEncoding(produtoPai.descricaoCompleta) || '',
+        linkExterno: produtoPai.linkExterno || '',
+        observacoes: produtoPai.estoqueObservacoes || '',
+        descricaoHtml: fixEncoding(produtoPai.descricaoCompleta) || '',
+        imagemURL: produtoPai.imagemPrincipalUrl || '',
+        dimensoes: {
+            largura: parseFloat(produtoPai.largura) || 0,
+            altura: parseFloat(produtoPai.altura) || 0,
+            profundidade: parseFloat(produtoPai.profundidade) || 0,
+            unidadeMedida: 1  // 1 = Centímetros
+        },
+        categoria: {
+            descricao: produtoPai.categoria || ''
+        },
+        estoque: produtoPai.depositoId ? {
+            minimo: 0,
+            maximo: 0,
+            crossdocking: 0,
+            localizacao: produtoPai.depositoNome || 'Geral'
+        } : {},
+        actionEstoque: produtoPai.estoqueQuantidade && parseInt(produtoPai.estoqueQuantidade) > 0 ? {
+            deposito: {
+                id: produtoPai.depositoId || null
+            },
+            operacao: 'B',  // B = Balanço
+            quantidade: parseFloat(produtoPai.estoqueQuantidade) || 0,
+            preco: parseFloat(produtoPai.estoquePrecoCompra) || 0,
+            custo: parseFloat(produtoPai.estoqueCustoCompra) || 0,
+            observacoes: produtoPai.estoqueObservacoes || ''
+        } : undefined,
+        fornecedor: produtoPai.fornecedorId ? {
+            id: produtoPai.fornecedorId,
+            nome: fixEncoding(produtoPai.fornecedorNome) || '',
+            codigo: produtoPai.fornecedorCodigo || '',
+            precoCusto: parseFloat(produtoPai.fornecedorPrecoCusto) || 0,
+            precoCompra: parseFloat(produtoPai.fornecedorPrecoCompra) || 0
+        } : undefined,
+        tributacao: {
+            origem: parseInt(produtoPai.origem) || 0,
+            ncm: produtoPai.ncm || '',
+            cest: produtoPai.cest || '',
+            codigoExcecaoTipi: produtoPai.codigoExcecaoTipi || '',
+            unidadeMedida: produtoPai.unidade || 'UN'
+        },
+        midia: {
+            video: {
+                url: produtoPai.videoUrl || ''
+            },
+            imagens: {
+                externas: imagensExternas,
+                url: produtoPai.imagemPrincipalUrl || ''
+            }
+        }
     };
+
+    // Se tem variações, adiciona no formato do Bling
+    if (variacoes.length > 0) {
+        // ✅ EXTRAIR TIPOS DE VARIAÇÃO ÚNICOS
+        const tiposVariacao = new Set();
+        variacoes.forEach(v => {
+            // Parse do formato "cor:vermelho;tamanho:M"
+            const parts = v.variacaoNome.split(';');
+            parts.forEach(part => {
+                const [tipo] = part.split(':');
+                if (tipo) tiposVariacao.add(tipo.trim());
+            });
+        });
+
+        // ✅ ADICIONAR CAMPO VARIACAO NO PRODUTO PAI (OBRIGATÓRIO!)
+        if (tiposVariacao.size > 0) {
+            const primeiroTipo = Array.from(tiposVariacao)[0];
+            product.variacao = {
+                nome: primeiroTipo.charAt(0).toUpperCase() + primeiroTipo.slice(1)
+            };
+        }
+
+        product.variacoes = variacoes.map(v => {
+            const varRow = v.row;
+            
+            // Parse de imagens da variação
+            let imagensExternasVar = [];
+            if (varRow.imagensAdicionaisUrls) {
+                imagensExternasVar = varRow.imagensAdicionaisUrls.split('|').filter(url => url.trim());
+            }
+            
+            return {
+                id: 0,
+                nome: fixEncoding(varRow.nome) || '',
+                codigo: varRow.codigo || `${produtoPai.codigo}-VAR`,
+                preco: parseFloat(varRow.preco) || parseFloat(produtoPai.preco) || 0,
+                tipo: 'P',
+                situacao: varRow.situacao || 'A',
+                formato: 'S',
+                descricaoCurta: fixEncoding(varRow.descricaoCurta) || '',
+                unidade: varRow.unidade || produtoPai.unidade || 'UN',
+                pesoLiquido: parseFloat(varRow.pesoLiquido) || parseFloat(produtoPai.pesoLiquido) || 0,
+                pesoBruto: parseFloat(varRow.pesoBruto) || parseFloat(produtoPai.pesoBruto) || 0,
+                volumes: parseInt(varRow.volumes) || parseInt(produtoPai.volumes) || 1,
+                itensPorCaixa: parseInt(varRow.itensPorCaixa) || parseInt(produtoPai.itensPorCaixa) || 1,
+                gtin: varRow.gtin || '',
+                gtinEmbalagem: varRow.gtinTributario || '',
+                dimensoes: {
+                    largura: parseFloat(varRow.largura) || parseFloat(produtoPai.largura) || 0,
+                    altura: parseFloat(varRow.altura) || parseFloat(produtoPai.altura) || 0,
+                    profundidade: parseFloat(varRow.profundidade) || parseFloat(produtoPai.profundidade) || 0,
+                    unidadeMedida: 1
+                },
+                estoque: varRow.estoqueQuantidade && parseInt(varRow.estoqueQuantidade) > 0 ? {
+                    saldo: parseFloat(varRow.estoqueQuantidade) || 0
+                } : {},
+                midia: {
+                    imagens: {
+                        externas: imagensExternasVar,
+                        url: varRow.imagemPrincipalUrl || ''
+                    }
+                },
+                variacao: {
+                    nome: v.variacaoNome,
+                    produtoPai: {
+                        cloneInfo: true
+                    }
+                }
+            };
+        });
+    }
+
+    return product;
 }
 
 async function sendToWebhook(products, chatId) {
@@ -306,15 +381,10 @@ async function sendToWebhook(products, chatId) {
         });
 
         console.log('✅ Status:', response.status);
-        console.log('📊 Resposta:', JSON.stringify(response.data, null, 2));
-
         return { success: true, data: response.data };
 
     } catch (error) {
         console.error('❌ Erro webhook:', error.message);
-        if (error.response) {
-            console.error('📊 Dados do erro:', error.response.data);
-        }
         return {
             success: false,
             error: error.message,
@@ -327,15 +397,14 @@ function formatResultMessage(result, products) {
     let message = '';
 
     if (!result.success || !result.data || !result.data.resumo) {
-        message = '╔═══════════════════════════╗\n';
+        message = '╔═══════════════════════════════╗\n';
         message += '║   ❌ ERRO NA IMPORTAÇÃO   ║\n';
-        message += '╚═══════════════════════════╝\n\n';
-        message += '😔 Não foi possível processar os produtos.\n\n';
+        message += '╚═══════════════════════════════╝\n\n';
+        message += '😔 Não foi possível processar.\n\n';
         if (result.error) {
-            message += '📝 *Detalhes do erro:*\n';
-            message += '`' + result.error + '`\n\n';
+            message += '📝 *Erro:*\n`' + result.error + '`\n\n';
         }
-        message += '💡 *Dica:* Digite /menu para tentar novamente.';
+        message += '💡 Digite /menu para tentar novamente.';
         return message;
     }
 
@@ -361,10 +430,10 @@ function formatResultMessage(result, products) {
     }
 
     message += '📊 *RESUMO GERAL*\n';
-    message += '┏━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n';
+    message += '┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n';
     message += '┃ 📦 Total: *' + resumo.total + '* envios\n';
     message += '┃ 🔗 Integrações: *' + resumo.totalIntegracoes + '*\n';
-    message += '┣━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n';
+    message += '┣━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n';
     message += '┃ ✅ Sucesso: *' + resumo.sucessos + '*\n';
 
     if (resumo.duplicados > 0) {
@@ -376,7 +445,7 @@ function formatResultMessage(result, products) {
     }
 
     message += '┃ 📈 Taxa: *' + resumo.taxaSucesso + '*\n';
-    message += '┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n';
+    message += '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n';
 
     if (detalhes.porIntegracao && Object.keys(detalhes.porIntegracao).length > 0) {
         message += '🏢 *DETALHES POR INTEGRAÇÃO*\n\n';
@@ -398,12 +467,8 @@ function formatResultMessage(result, products) {
         message += '✅ *PRODUTOS CADASTRADOS* (' + resumo.sucessos + ')\n\n';
         detalhes.sucessos.slice(0, 5).forEach((p, i) => {
             message += '  ' + (i + 1) + '. ✓ *' + p.nome + '*\n';
-            if (p.integrationName) {
-                message += '     └─ Em: ' + p.integrationName + '\n';
-            }
-            if (p.blingId) {
-                message += '     └─ ID Bling: `' + p.blingId + '`\n';
-            }
+            if (p.integrationName) message += '     └─ Em: ' + p.integrationName + '\n';
+            if (p.blingId) message += '     └─ ID: `' + p.blingId + '`\n';
             message += '\n';
         });
         if (resumo.sucessos > 5) {
@@ -411,32 +476,12 @@ function formatResultMessage(result, products) {
         }
     }
 
-    if (resumo.duplicados > 0 && detalhes.duplicados) {
-        message += '🔄 *PRODUTOS JÁ EXISTENTES* (' + resumo.duplicados + ')\n\n';
-        detalhes.duplicados.slice(0, 3).forEach((p, i) => {
-            message += '  ' + (i + 1) + '. ↻ *' + p.nome + '*\n';
-            if (p.integrationName) {
-                message += '     └─ Em: ' + p.integrationName + '\n';
-            }
-            message += '     └─ _Este produto já estava cadastrado_\n\n';
-        });
-        if (resumo.duplicados > 3) {
-            message += '  ... e mais *' + (resumo.duplicados - 3) + '* duplicado(s)\n\n';
-        }
-    }
-
     if (resumo.erros > 0 && detalhes.erros) {
         message += '❌ *PRODUTOS COM ERRO* (' + resumo.erros + ')\n\n';
         detalhes.erros.slice(0, 3).forEach((p, i) => {
             message += '  ' + (i + 1) + '. ✗ *' + p.nome + '*\n';
-            if (p.integrationName) {
-                message += '     └─ Em: ' + p.integrationName + '\n';
-            }
             if (p.mensagem) {
-                let errorMsg = p.mensagem
-                    .replace(/\\u([0-9a-f]{4})/gi, (match, grp) => String.fromCharCode(parseInt(grp, 16)))
-                    .replace(/\\/g, '')
-                    .substring(0, 100);
+                let errorMsg = p.mensagem.substring(0, 100);
                 message += '     └─ ⚠️ ' + errorMsg + (p.mensagem.length > 100 ? '...' : '') + '\n';
             }
             message += '\n';
@@ -446,25 +491,8 @@ function formatResultMessage(result, products) {
         }
     }
 
-    message += '━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
-
-    if (resumo.erros === 0 && resumo.duplicados === 0) {
-        message += '🎊 *Perfeito!* Todos os produtos foram cadastrados com sucesso!\n\n';
-    } else if (resumo.erros === 0) {
-        message += '👍 *Ótimo!* Todos os produtos foram processados. Alguns já existiam no sistema.\n\n';
-    } else if (resumo.sucessos > 0) {
-        message += '⚠️ *Atenção:* Alguns produtos tiveram problemas. Revise os erros acima.\n\n';
-    } else {
-        message += '😞 *Ops!* Nenhum produto foi cadastrado. Verifique os erros e tente novamente.\n\n';
-    }
-
-    message += '⏰ ' + new Date().toLocaleString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    }) + '\n';
+    message += '━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+    message += '⏰ ' + new Date().toLocaleString('pt-BR') + '\n';
     message += '💡 Digite /menu para nova importação';
 
     return message;
@@ -478,48 +506,25 @@ async function showMainMenu(chatId, name) {
         '👋 Olá, *' + name + '*!\n\n' +
         '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n' +
         '📋 *MENU PRINCIPAL*\n\n' +
-        '┏━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
         '┃  1️⃣  Enviar planilha       ┃\n' +
         '┃  2️⃣  Ver integrações ativas┃\n' +
         '┃  3️⃣  Cancelar              ┃\n' +
-        '┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n' +
+        '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n' +
         '💬 Digite o número da opção desejada';
 
     await bot.sendMessage(chatId, menuMessage, { parse_mode: 'Markdown' });
     setUserState(chatId, 'awaiting_menu_choice');
 }
 
-// ============================================
-// HANDLERS COM AUTORIZAÇÃO
-// ============================================
-
 bot.onText(/\/start|\/menu/i, async (msg) => {
-    if (!await checkAuthorization(msg)) return;
-
     const name = msg.from.first_name || 'usuário';
     await showMainMenu(msg.chat.id, name);
-});
-
-bot.onText(/\/meuid/i, async (msg) => {
-    const userId = msg.from.id;
-    const username = msg.from.username || 'sem username';
-    const name = msg.from.first_name || 'usuário';
-
-    await bot.sendMessage(msg.chat.id,
-        '📱 *Suas Informações*\n\n' +
-        '🆔 User ID: `' + userId + '`\n' +
-        '👤 Nome: ' + name + '\n' +
-        '📝 Username: @' + username + '\n\n' +
-        '💡 Envie este ID para o administrador liberar seu acesso.',
-        { parse_mode: 'Markdown' }
-    );
 });
 
 bot.on('message', async (msg) => {
     if (msg.text && msg.text.startsWith('/')) return;
     if (msg.document) return;
-
-    if (!await checkAuthorization(msg)) return;
 
     const chatId = msg.chat.id;
     const userState = getUserState(chatId);
@@ -564,7 +569,7 @@ bot.on('message', async (msg) => {
                             intMsg += '└─ ✅ Status: *Ativa*\n\n';
                         });
 
-                        intMsg += '━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+                        intMsg += '━━━━━━━━━━━━━━━━━━━━━━━\n\n';
                         intMsg += '📊 Total: *' + integrations.length + '* integração(ões)\n';
                         intMsg += '📤 Os produtos serão enviados para todas!\n\n';
                         intMsg += '💡 Digite /menu para voltar';
@@ -595,12 +600,6 @@ bot.on('message', async (msg) => {
                 }
                 break;
 
-            case 'awaiting_file':
-                break;
-
-            case 'processing':
-                break;
-
             default:
                 const name = msg.from.first_name || 'usuário';
                 await showMainMenu(chatId, name);
@@ -619,8 +618,6 @@ bot.on('message', async (msg) => {
 });
 
 bot.on('document', async (msg) => {
-    if (!await checkAuthorization(msg)) return;
-
     const chatId = msg.chat.id;
     const userState = getUserState(chatId);
 
