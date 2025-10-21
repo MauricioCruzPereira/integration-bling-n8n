@@ -77,22 +77,22 @@ async function downloadTelegramFile(fileId) {
 
 function fixEncoding(text) {
     if (!text || typeof text !== 'string') return text;
-    
+
     try {
         const buffer = Buffer.from(text, 'binary');
         let decoded = iconv.decode(buffer, 'utf8');
-        
+
         if (decoded.includes('�')) {
             decoded = iconv.decode(buffer, 'latin1');
         }
-        
+
         if (decoded.includes('�')) {
             decoded = iconv.decode(buffer, 'win1252');
         }
-        
+
         decoded = decoded.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
         decoded = decoded.replace(/\s+/g, ' ').trim();
-        
+
         return decoded;
     } catch (e) {
         console.error('❌ Erro ao corrigir encoding:', e.message);
@@ -100,31 +100,142 @@ function fixEncoding(text) {
     }
 }
 
+function parsePrice(value) {
+    if (!value) return 0;
+
+    let precoStr = value.toString().trim();
+
+    // Remove R$, espaços
+    precoStr = precoStr.replace(/[R$\s]/g, '');
+
+    // ✅ VERIFICA SE JÁ É UM NÚMERO VÁLIDO (SEM VÍRGULA)
+    // Exemplo: "140.90" já está correto
+    if (/^\d+\.\d{1,2}$/.test(precoStr)) {
+        const valor = parseFloat(precoStr);
+        return (valor && valor > 0) ? valor : 0;
+    }
+
+    // ✅ SE TEM VÍRGULA, TRATA FORMATO BRASILEIRO
+    // Remove pontos de milhar (1.250,00 → 1250,00)
+    if (precoStr.includes(',')) {
+        precoStr = precoStr.replace(/\./g, '');
+        // Converte vírgula decimal em ponto (1250,00 → 1250.00)
+        precoStr = precoStr.replace(',', '.');
+    }
+
+    const valor = parseFloat(precoStr);
+
+    // Retorna 0 se não for um número válido ou se for negativo
+    return (valor && valor > 0) ? valor : 0;
+}
+
+function expandVariations(row) {
+    const variacaoNome = (row.variacaoNome || '').trim();
+
+    // Se não tem variação, retorna apenas o produto principal
+    if (!variacaoNome) {
+        return [{
+            ...row,
+            variacaoNome: '',
+            formato: 'S'
+        }];
+    }
+
+    console.log('\n🔍 Expandindo variações para:', row.codigo);
+    console.log('📝 String original:', variacaoNome);
+
+    const variations = [];
+    const attributes = {};
+
+    // Parse da string: "Cor:Branco/Preto;Tamanho:20/21,22/23,24/25;Gênero:Menino"
+    const parts = variacaoNome.split(';').filter(p => p.trim());
+
+    parts.forEach(part => {
+        const [key, values] = part.split(':').map(s => s.trim());
+        if (key && values) {
+            attributes[key] = values.split(',').map(v => v.trim()).filter(v => v);
+        }
+    });
+
+    console.log('📊 Atributos parseados:', attributes);
+
+    const variantKey = Object.keys(attributes).find(k => attributes[k].length > 1);
+
+    if (!variantKey || attributes[variantKey].length === 0) {
+        console.warn('⚠️ Nenhuma variação múltipla encontrada');
+        return [{ ...row, variacaoNome: '', formato: 'S' }];
+    }
+
+    console.log('🎯 Atributo principal de variação:', variantKey);
+
+    // ✅ GARANTIR QUE O PREÇO SEJA VÁLIDO
+    const precoBase = parsePrice(row.preco);
+    console.log('💰 Preço base do produto:', precoBase);
+
+    // Primeiro item: Produto PAI
+    variations.push({
+        ...row,
+        variacaoNome: '',
+        formato: 'V',
+        codigo: row.codigo,
+        preco: precoBase // ✅ GARANTIR PREÇO NO PAI
+    });
+
+    // Demais itens: Variações
+    attributes[variantKey].forEach((value, index) => {
+        const varCode = `${row.codigo}-${String(index + 1).padStart(2, '0')}`;
+
+        const varParts = [];
+        Object.keys(attributes).forEach(key => {
+            if (key === variantKey) {
+                varParts.push(`${key}:${value}`);
+            } else {
+                varParts.push(`${key}:${attributes[key][0]}`);
+            }
+        });
+        const varName = varParts.join(';');
+
+        variations.push({
+            ...row,
+            codigo: varCode,
+            variacaoNome: varName,
+            formato: 'S',
+            preco: precoBase // ✅ USAR PREÇO BASE PARSEADO
+        });
+
+        console.log(`  ✅ Variação ${index + 1}: ${varCode} - ${varName} - R$ ${precoBase}`);
+    });
+
+    console.log(`📦 Total de itens gerados: ${variations.length} (1 PAI + ${variations.length - 1} variações)\n`);
+
+    return variations;
+}
+
 function processSpreadsheet(filePath) {
     console.log('📊 Processando planilha...');
-    
-    const workbook = XLSX.readFile(filePath, { 
-        raw: false, 
-        defval: '', 
-        codepage: 65001 
+
+    const workbook = XLSX.readFile(filePath, {
+        raw: false,
+        defval: '',
+        codepage: 65001
     });
-    
+
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(worksheet, { 
-        raw: false, 
-        defval: '', 
-        blankrows: false 
+    const data = XLSX.utils.sheet_to_json(worksheet, {
+        raw: false,
+        defval: '',
+        blankrows: false
     });
-    
+
     console.log('✅ Linhas lidas:', data.length);
-    
+
     const fixedData = data.map((row, index) => {
         const fixedRow = {};
-        
+
         Object.keys(row).forEach(key => {
             const value = row[key];
-            
+
             if (typeof value === 'string') {
                 const textFields = ['nome', 'marca', 'descricaoCurta', 'descricaoCompleta', 'categoria', 'variacaoNome', 'fornecedorNome'];
                 fixedRow[key] = textFields.includes(key) ? fixEncoding(value) : value.trim();
@@ -132,20 +243,35 @@ function processSpreadsheet(filePath) {
                 fixedRow[key] = value;
             }
         });
-        
+
         if (index < 3) {
             console.log(`📦 Linha ${index + 1}:`, {
                 codigo: fixedRow.codigo,
                 nome: fixedRow.nome?.substring(0, 50),
-                variacaoNome: fixedRow.variacaoNome || 'produto principal'
+                preco: fixedRow.preco,
+                variacaoNome: fixedRow.variacaoNome || 'produto simples'
             });
         }
-        
+
         return fixedRow;
     });
-    
+
     console.log('✅ Processado:', fixedData.length, 'linhas');
-    return fixedData;
+
+    // ✅ EXPANDE AS VARIAÇÕES APENAS UMA VEZ
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🔄 EXPANDINDO VARIAÇÕES...');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    const expandedData = fixedData.flatMap(row => expandVariations(row));
+
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('✅ EXPANSÃO CONCLUÍDA');
+    console.log(`📊 Linhas originais: ${fixedData.length}`);
+    console.log(`📦 Linhas expandidas: ${expandedData.length}`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    return expandedData; // ✅ RETORNA DADOS JÁ EXPANDIDOS
 }
 
 function groupProductsByCode(rows) {
@@ -159,41 +285,47 @@ function groupProductsByCode(rows) {
             return;
         }
 
-        // Extrai código pai (antes do primeiro hífen nas variações)
+        // Extrai código pai (antes do primeiro hífen)
         const codigoPai = codigo.split('-')[0];
+        const variacaoNome = (row.variacaoNome || '').trim();
 
-        // Se não existe o grupo, cria (primeira linha = produto pai)
+        // ✅ PRODUTO PAI: primeira ocorrência do código OU linha sem variacaoNome
         if (!grouped[codigoPai]) {
             grouped[codigoPai] = {
                 produto: row,
                 variacoes: []
             };
             console.log(`✅ PRODUTO PAI: ${codigoPai} - ${row.nome?.substring(0, 40)}...`);
-        } else {
-            // Linhas seguintes com mesmo código pai = variações
-            const variacaoNome = (row.variacaoNome || '').trim();
-            
-            if (variacaoNome) {
-                grouped[codigoPai].variacoes.push({
-                    row: row,
-                    variacaoNome: variacaoNome
-                });
-                console.log(`  ✅ Variação: ${variacaoNome}`);
-            } else {
-                console.warn(`⚠️ Linha ${index + 1}: variação sem nome (campo variacaoNome vazio)`);
-            }
+        }
+        // ✅ VARIAÇÃO: linha com variacaoNome preenchido E código diferente do pai
+        else if (variacaoNome && codigo !== codigoPai) {
+            grouped[codigoPai].variacoes.push({
+                row: row,
+                variacaoNome: variacaoNome
+            });
+            console.log(`  ✅ Variação: ${codigo} - ${variacaoNome}`);
+        }
+        // ⚠️ Linha duplicada do produto pai (ignora)
+        else if (!variacaoNome && codigo === codigoPai) {
+            console.warn(`⚠️ Ignorando linha duplicada do produto pai: ${codigo}`);
         }
     });
 
     const result = Object.values(grouped);
-    console.log('┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓');
-    console.log(`📦 Produtos: ${result.length}`);
+    console.log('\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓');
+    console.log(`📦 Produtos agrupados: ${result.length}`);
     result.forEach(g => {
-        console.log(`   • ${g.produto.codigo}: ${g.variacoes.length} variação(ões)`);
-        if (g.variacoes.length > 0) {
+        const totalVariacoes = g.variacoes.length;
+        console.log(`   • ${g.produto.codigo}: ${totalVariacoes} variação(ões)`);
+        if (totalVariacoes > 0 && totalVariacoes <= 5) {
             g.variacoes.forEach((v, i) => {
                 console.log(`      ${i + 1}. ${v.variacaoNome}`);
             });
+        } else if (totalVariacoes > 5) {
+            g.variacoes.slice(0, 3).forEach((v, i) => {
+                console.log(`      ${i + 1}. ${v.variacaoNome}`);
+            });
+            console.log(`      ... e mais ${totalVariacoes - 3} variações`);
         }
     });
     console.log('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n');
@@ -211,11 +343,15 @@ function formatProduct(group) {
         imagensExternas = produtoPai.imagensAdicionaisUrls.split('|').filter(url => url.trim());
     }
 
+    // ✅ CONVERSÃO DE PREÇO COM NOVA FUNÇÃO
+    const precoProdutoPai = parsePrice(produtoPai.preco);
+    console.log(`💰 Produto "${produtoPai.nome}" - Preço original: "${produtoPai.preco}" → Convertido: ${precoProdutoPai}`);
+
     // Dados base do produto (COMPLETO)
     const product = {
         nome: fixEncoding(produtoPai.nome) || '',
         codigo: produtoPai.codigo || '',
-        preco: parseFloat(produtoPai.preco) || 0,
+        preco: precoProdutoPai,
         tipo: produtoPai.tipo || 'P',
         situacao: produtoPai.situacao || 'A',
         formato: variacoes.length > 0 ? 'V' : 'S',
@@ -257,16 +393,16 @@ function formatProduct(group) {
             },
             operacao: 'B',  // B = Balanço
             quantidade: parseFloat(produtoPai.estoqueQuantidade) || 0,
-            preco: parseFloat(produtoPai.estoquePrecoCompra) || 0,
-            custo: parseFloat(produtoPai.estoqueCustoCompra) || 0,
+            preco: parsePrice(produtoPai.estoquePrecoCompra),
+            custo: parsePrice(produtoPai.estoqueCustoCompra),
             observacoes: produtoPai.estoqueObservacoes || ''
         } : undefined,
         fornecedor: produtoPai.fornecedorId ? {
             id: produtoPai.fornecedorId,
             nome: fixEncoding(produtoPai.fornecedorNome) || '',
             codigo: produtoPai.fornecedorCodigo || '',
-            precoCusto: parseFloat(produtoPai.fornecedorPrecoCusto) || 0,
-            precoCompra: parseFloat(produtoPai.fornecedorPrecoCompra) || 0
+            precoCusto: parsePrice(produtoPai.fornecedorPrecoCusto),
+            precoCompra: parsePrice(produtoPai.fornecedorPrecoCompra)
         } : undefined,
         tributacao: {
             origem: parseInt(produtoPai.origem) || 0,
@@ -307,24 +443,29 @@ function formatProduct(group) {
             };
         }
 
-        product.variacoes = variacoes.map(v => {
+        product.variacoes = variacoes.map((v, index) => {
             const varRow = v.row;
-            
+
             // Parse de imagens da variação
             let imagensExternasVar = [];
             if (varRow.imagensAdicionaisUrls) {
                 imagensExternasVar = varRow.imagensAdicionaisUrls.split('|').filter(url => url.trim());
             }
-            
-            return {
+
+            // ✅ CONVERSÃO DE PREÇO DA VARIAÇÃO COM FALLBACK PARA PREÇO DO PAI
+            const precoVariacao = parsePrice(varRow.preco) || precoProdutoPai;
+            console.log(`   💰 Variação ${index + 1} "${v.variacaoNome}" - Preço: ${precoVariacao}`);
+
+            // ✅ OBJETO DA VARIAÇÃO COM TODOS OS CAMPOS NECESSÁRIOS
+            const variacaoObj = {
                 id: 0,
-                nome: fixEncoding(varRow.nome) || '',
+                nome: fixEncoding(varRow.nome) || fixEncoding(produtoPai.nome) || '',
                 codigo: varRow.codigo || `${produtoPai.codigo}-VAR`,
-                preco: parseFloat(varRow.preco) || parseFloat(produtoPai.preco) || 0,
+                preco: precoVariacao, // ✅ PREÇO EXPLÍCITO
                 tipo: 'P',
                 situacao: varRow.situacao || 'A',
                 formato: 'S',
-                descricaoCurta: fixEncoding(varRow.descricaoCurta) || '',
+                descricaoCurta: fixEncoding(varRow.descricaoCurta) || fixEncoding(produtoPai.descricaoCurta) || '',
                 unidade: varRow.unidade || produtoPai.unidade || 'UN',
                 pesoLiquido: parseFloat(varRow.pesoLiquido) || parseFloat(produtoPai.pesoLiquido) || 0,
                 pesoBruto: parseFloat(varRow.pesoBruto) || parseFloat(produtoPai.pesoBruto) || 0,
@@ -354,6 +495,14 @@ function formatProduct(group) {
                     }
                 }
             };
+
+            console.log(`   ✅ Variação ${index + 1} objeto criado:`, {
+                codigo: variacaoObj.codigo,
+                preco: variacaoObj.preco,
+                formato: variacaoObj.formato
+            });
+
+            return variacaoObj;
         });
     }
 
@@ -586,20 +735,18 @@ bot.on('message', async (msg) => {
                     resetUserState(chatId);
                 } else if (msg.text === '3') {
                     await bot.sendMessage(chatId,
-                        '👋 *Operação cancelada*\n\n' +
-                        'Até logo! Digite /start para voltar.',
+                        '👋 *Operação cancelada*\n\nAté logo! Digite /start para voltar.',
                         { parse_mode: 'Markdown' }
                     );
                     resetUserState(chatId);
                 } else {
                     await bot.sendMessage(chatId,
-                        '❌ *Opção inválida*\n\n' +
-                        'Por favor, escolha *1*, *2* ou *3*',
+                        '❌ Opção inválida\n\n' +
+                        'Por favor, escolha 1, 2 ou 3',
                         { parse_mode: 'Markdown' }
                     );
                 }
                 break;
-
             default:
                 const name = msg.from.first_name || 'usuário';
                 await showMainMenu(chatId, name);
@@ -666,10 +813,80 @@ bot.on('document', async (msg) => {
             { parse_mode: 'Markdown' }
         );
 
+        // ✅ PROCESSAR PLANILHA (JÁ RETORNA EXPANDIDO)
         const filePath = await downloadTelegramFile(document.file_id);
         const rawData = processSpreadsheet(filePath);
+
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('📊 DADOS PROCESSADOS (JÁ EXPANDIDOS)');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('Total de linhas:', rawData.length);
+        rawData.forEach((row, i) => {
+            if (i < 10) {
+                console.log(`Linha ${i + 1}:`, {
+                    codigo: row.codigo,
+                    nome: row.nome?.substring(0, 30),
+                    formato: row.formato,
+                    variacaoNome: row.variacaoNome || 'PRODUTO PAI'
+                });
+            }
+        });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        // ✅ AGRUPAR PRODUTOS
         const groupedProducts = groupProductsByCode(rawData);
+
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('📦 PRODUTOS AGRUPADOS');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        groupedProducts.forEach((group, i) => {
+            console.log(`\nGrupo ${i + 1}:`);
+            console.log('  Produto PAI:', {
+                codigo: group.produto.codigo,
+                nome: group.produto.nome?.substring(0, 40),
+                formato: group.produto.formato
+            });
+            console.log('  Variações:', group.variacoes.length);
+            group.variacoes.forEach((v, j) => {
+                console.log(`    ${j + 1}. ${v.row.codigo} - ${v.variacaoNome}`);
+            });
+        });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        // ✅ FORMATAR PRODUTOS
         const products = groupedProducts.map(g => formatProduct(g));
+
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('✅ PRODUTOS FORMATADOS PARA ENVIO');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        products.forEach((p, i) => {
+            console.log(`\nProduto ${i + 1}:`);
+            console.log('  Código:', p.codigo);
+            console.log('  Nome:', p.nome?.substring(0, 40));
+            console.log('  Formato:', p.formato);
+            console.log('  Tem Variações?', p.variacoes ? 'SIM (' + p.variacoes.length + ')' : 'NÃO');
+
+            if (p.variacoes && p.variacoes.length > 0) {
+                console.log('  Lista de Variações:');
+                p.variacoes.forEach((v, j) => {
+                    console.log(`    ${j + 1}. ${v.codigo} - ${v.variacao?.nome || 'SEM NOME'}`);
+                });
+            }
+        });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        // ✅ VERIFICAÇÃO DE PREÇOS
+        console.log('🔍 VERIFICANDO PREÇOS FINAIS:');
+        products.forEach((p, i) => {
+            console.log(`\n${i + 1}. ${p.nome}`);
+            console.log(`   💰 Preço: R$ ${p.preco.toFixed(2)}`);
+            if (p.variacoes && p.variacoes.length > 0) {
+                p.variacoes.forEach((v, j) => {
+                    console.log(`      ${j + 1}. Variação "${v.variacao.nome}": R$ ${v.preco.toFixed(2)}`);
+                });
+            }
+        });
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
         await bot.sendMessage(chatId,
             '✅ *Planilha processada!*\n\n' +
@@ -678,6 +895,21 @@ bot.on('document', async (msg) => {
             '⏳ _Isso pode levar alguns minutos. Por favor, aguarde..._',
             { parse_mode: 'Markdown' }
         );
+
+        // ✅ PAYLOAD FINAL
+        const payload = {
+            timestamp: Date.now(),
+            chatId: chatId,
+            products: products,
+            integrations: integrations
+        };
+
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('📤 PAYLOAD FINAL PARA WEBHOOK');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('Produtos no payload:', payload.products.length);
+        console.log('Primeira entrada:', JSON.stringify(payload.products[0], null, 2).substring(0, 500));
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
         const result = await sendToWebhook(products, chatId);
         fs.unlinkSync(filePath);
@@ -689,6 +921,7 @@ bot.on('document', async (msg) => {
 
     } catch (error) {
         console.error('❌ Erro:', error);
+        console.error('Stack:', error.stack);
         await bot.sendMessage(chatId,
             '❌ *Erro ao processar arquivo*\n\n' +
             '```\n' + error.message + '\n```\n\n' +
