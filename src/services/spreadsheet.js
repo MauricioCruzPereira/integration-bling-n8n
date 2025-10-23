@@ -1,0 +1,154 @@
+const XLSX = require('xlsx');
+const { fixEncoding } = require('../utils/encoding');
+const { expandVariations } = require('../utils/variations');
+const { parsePrice, parseDecimal } = require('../utils/price');
+
+function processSpreadsheet(filePath) {
+    const workbook = XLSX.readFile(filePath, {
+        raw: false,
+        defval: '',
+        codepage: 65001
+    });
+
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet, {
+        raw: false,
+        defval: '',
+        blankrows: false
+    });
+
+    const fixedData = data.map(row => {
+        const fixedRow = {};
+        Object.keys(row).forEach(key => {
+            const value = row[key];
+            if (typeof value === 'string') {
+                const textFields = ['nome', 'marca', 'descricaoCurta', 'descricaoCompleta', 'categoria', 'variacaoNome', 'fornecedorNome'];
+                fixedRow[key] = textFields.includes(key) ? fixEncoding(value) : value.trim();
+            } else {
+                fixedRow[key] = value;
+            }
+        });
+        return fixedRow;
+    });
+
+    return fixedData.flatMap(row => expandVariations(row));
+}
+
+function groupProductsByCode(rows) {
+    const grouped = {};
+
+    rows.forEach(row => {
+        const codigo = (row.codigo || '').toString().trim();
+        if (!codigo) return;
+
+        const codigoPai = codigo.split('-')[0];
+        const variacaoNome = (row.variacaoNome || '').trim();
+
+        if (!grouped[codigoPai]) {
+            grouped[codigoPai] = { produto: row, variacoes: [] };
+        } else if (variacaoNome && codigo !== codigoPai) {
+            grouped[codigoPai].variacoes.push({ row: row, variacaoNome: variacaoNome });
+        }
+    });
+
+    return Object.values(grouped);
+}
+
+function formatProduct(group) {
+    const produtoPai = group.produto;
+    const variacoes = group.variacoes;
+    const precoProdutoPai = parsePrice(produtoPai.preco);
+
+    console.log(`\n📦 Produto: "${produtoPai.nome}"`);
+    console.log(`   Código: ${produtoPai.codigo}`);
+    console.log(`   Preço: R$ ${precoProdutoPai.toFixed(2)}`);
+
+    const product = {
+        nome: fixEncoding(produtoPai.nome) || '',
+        codigo: produtoPai.codigo || '',
+        preco: precoProdutoPai,
+        tipo: produtoPai.tipo || 'P',
+        situacao: produtoPai.situacao || 'A',
+        formato: variacoes.length > 0 ? 'V' : 'S',
+        unidade: produtoPai.unidade || 'UN',
+        pesoLiquido: parseDecimal(produtoPai.pesoLiquido),
+        pesoBruto: parseDecimal(produtoPai.pesoBruto),
+        volumes: parseInt(produtoPai.volumes) || 1,
+        itensPorCaixa: parseInt(produtoPai.itensPorCaixa) || 1,
+        gtin: produtoPai.gtin || '',
+        gtinEmbalagem: produtoPai.gtinTributario || '',
+        marca: fixEncoding(produtoPai.marca) || '',
+        descricaoCurta: fixEncoding(produtoPai.descricaoCurta) || '',
+        freteGratis: produtoPai.freteGratis === 'S' || produtoPai.freteGratis === 'Sim',
+        dimensoes: {
+            largura: parseDecimal(produtoPai.largura),
+            altura: parseDecimal(produtoPai.altura),
+            profundidade: parseDecimal(produtoPai.profundidade),
+            unidadeMedida: 1
+        },
+        tributacao: {
+            origem: parseInt(produtoPai.origem) || 0,
+            ncm: produtoPai.ncm || '',
+            cest: produtoPai.cest || '',
+            unidadeMedida: produtoPai.unidade || 'UN'
+        }
+    };
+
+    if (variacoes.length > 0) {
+        const tiposVariacao = new Set();
+        variacoes.forEach(v => {
+            const parts = v.variacaoNome.split(';');
+            parts.forEach(part => {
+                const [tipo] = part.split(':');
+                if (tipo) tiposVariacao.add(tipo.trim());
+            });
+        });
+
+        if (tiposVariacao.size > 0) {
+            const primeiroTipo = Array.from(tiposVariacao)[0];
+            product.variacao = {
+                nome: primeiroTipo.charAt(0).toUpperCase() + primeiroTipo.slice(1)
+            };
+        }
+
+        product.variacoes = variacoes.map((v, index) => {
+            const varRow = v.row;
+
+            console.log(`   ✅ Variação ${index + 1}: ${v.variacaoNome}`);
+            console.log(`      Código: ${varRow.codigo}`);
+            console.log(`      Preço: R$ ${precoProdutoPai.toFixed(2)}`);
+
+            return {
+                codigo: varRow.codigo,
+                preco: parsePrice(varRow.preco) || precoProdutoPai,
+                tipo: 'P',
+                situacao: 'A',
+                formato: 'S',
+                unidade: varRow.unidade || produtoPai.unidade || 'UN',
+                pesoLiquido: parseDecimal(varRow.pesoLiquido) || parseDecimal(produtoPai.pesoLiquido),
+                pesoBruto: parseDecimal(varRow.pesoBruto) || parseDecimal(produtoPai.pesoBruto),
+                volumes: parseInt(varRow.volumes) || parseInt(produtoPai.volumes) || 1,
+                itensPorCaixa: parseInt(varRow.itensPorCaixa) || parseInt(produtoPai.itensPorCaixa) || 1,
+                dimensoes: {
+                    largura: parseDecimal(varRow.largura) || parseDecimal(produtoPai.largura),
+                    altura: parseDecimal(varRow.altura) || parseDecimal(produtoPai.altura),
+                    profundidade: parseDecimal(varRow.profundidade) || parseDecimal(produtoPai.profundidade),
+                    unidadeMedida: 1
+                },
+                variacao: {
+                    nome: v.variacaoNome,
+                    produtoPai: {
+                        cloneInfo: true
+                    }
+                }
+            };
+        });
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    return product;
+}
+
+module.exports = { processSpreadsheet, groupProductsByCode, formatProduct };
