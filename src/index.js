@@ -6,7 +6,23 @@ const { showMainMenu, handleMenuChoice } = require('./handlers/menu');
 const { handleFileUpload } = require('./handlers/file');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+// ✅ CONFIGURAÇÕES OTIMIZADAS
+const bot = new TelegramBot(TELEGRAM_TOKEN, { 
+    polling: {
+        interval: 1000,
+        autoStart: true,
+        params: {
+            timeout: 10
+        }
+    },
+    request: {
+        agentOptions: {
+            keepAlive: true,
+            keepAliveMsecs: 30000
+        },
+        timeout: 60000 // 60 segundos
+    }
+});
 
 const userStates = {};
 
@@ -106,8 +122,31 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 // ✅ TRATAMENTO DE ERROS
-bot.on('polling_error', (error) => console.error('❌ Polling:', error));
-process.on('unhandledRejection', (error) => console.error('❌ Unhandled:', error));
+// Adicionar após a inicialização do bot:
+
+// ✅ TRATAMENTO ROBUSTO DE ERROS
+bot.on('polling_error', (error) => {
+    console.error('❌ Polling error:', error.code);
+    
+    if (error.code === 'EFATAL' || error.code === 'ECONNRESET') {
+        console.log('🔄 Reconectando em 5 segundos...');
+        setTimeout(() => {
+            console.log('✅ Tentando reconectar...');
+        }, 5000);
+    }
+});
+
+bot.on('error', (error) => {
+    console.error('❌ Bot error:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+    console.error('❌ Unhandled rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught exception:', error);
+});
 
 console.log('╔═══════════════════════════════╗');
 console.log('║  🤖 BOT INICIADO COM SUCESSO  ║');

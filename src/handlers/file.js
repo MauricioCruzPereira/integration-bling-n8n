@@ -4,6 +4,47 @@ const axios = require('axios');
 const spreadsheetService = require('../services/spreadsheet.service');
 const integrationsRepository = require('../repositories/integrations.repository');
 
+// ✅ FUNÇÃO AUXILIAR: Enviar mensagem longa em partes
+async function sendLongMessage(bot, chatId, message, maxLength = 4000) {
+    if (message.length <= maxLength) {
+        try {
+            await bot.sendMessage(chatId, message);
+            return;
+        } catch (error) {
+            console.error('Erro ao enviar mensagem:', error.message);
+            await bot.sendMessage(chatId, '⚠️ Processamento concluído, mas houve erro ao enviar detalhes.');
+            return;
+        }
+    }
+
+    // Dividir em partes
+    const parts = [];
+    let currentPart = '';
+    const lines = message.split('\n');
+
+    for (const line of lines) {
+        if ((currentPart + line + '\n').length > maxLength) {
+            if (currentPart) parts.push(currentPart);
+            currentPart = line + '\n';
+        } else {
+            currentPart += line + '\n';
+        }
+    }
+    
+    if (currentPart) parts.push(currentPart);
+
+    // Enviar cada parte
+    for (let i = 0; i < parts.length; i++) {
+        try {
+            const header = i === 0 ? '' : `📄 Continuação (${i + 1}/${parts.length}):\n\n`;
+            await bot.sendMessage(chatId, header + parts[i]);
+            await new Promise(resolve => setTimeout(resolve, 500)); // Delay entre mensagens
+        } catch (error) {
+            console.error(`Erro ao enviar parte ${i + 1}:`, error.message);
+        }
+    }
+}
+
 async function handleFileUpload(bot, msg, token) {
     const chatId = msg.chat.id;
     const document = msg.document;
@@ -24,29 +65,50 @@ async function handleFileUpload(bot, msg, token) {
         return;
     }
 
+    let progressMsg;
+    
     try {
-        await bot.sendMessage(chatId, '⏳ Baixando planilha...');
+        // 1. Baixar arquivo
+        progressMsg = await bot.sendMessage(chatId, '⏳ Baixando planilha...');
         const filePath = await downloadFile(bot, fileId, fileName, token);
         console.log(`✅ Arquivo salvo: ${filePath}`);
 
+        // 2. Buscar integrações
         const phoneNumber = msg.from.id.toString();
         const integrations = await integrationsRepository.findActiveByPhone(phoneNumber);
         
         if (!integrations || integrations.length === 0) {
-            await bot.sendMessage(chatId, '❌ Nenhuma integração ativa encontrada!\n\nUse /menu para configurar suas integrações.');
+            await bot.editMessageText(
+                '❌ Nenhuma integração ativa encontrada!\n\nUse /menu para configurar.',
+                { chat_id: chatId, message_id: progressMsg.message_id }
+            );
             return;
         }
 
-        await bot.sendMessage(chatId, `✅ Planilha baixada!\n\n🔄 Processando e enviando para ${integrations.length} integração(ões)...\n\n⏳ Aguarde...`);
+        // 3. Atualizar progresso
+        await bot.editMessageText(
+            `✅ Planilha baixada!\n\n🔄 Processando ${integrations.length} integração(ões)...\n\n⏳ Isso pode levar alguns minutos...`,
+            { chat_id: chatId, message_id: progressMsg.message_id }
+        );
 
+        // 4. Processar
         const result = await spreadsheetService.processAndSend(filePath, integrations);
 
+        // 5. Limpar arquivo
         try {
             fs.unlinkSync(filePath);
         } catch (err) {
-            console.error('Erro ao deletar arquivo temporário:', err);
+            console.error('Erro ao deletar arquivo:', err);
         }
 
+        // 6. Deletar mensagem de progresso
+        try {
+            await bot.deleteMessage(chatId, progressMsg.message_id);
+        } catch (err) {
+            console.error('Erro ao deletar mensagem:', err);
+        }
+
+        // 7. Enviar resultado
         if (result.success) {
             let message = `✅ ENVIO CONCLUÍDO\n\n`;
             message += `📊 Resumo:\n`;
@@ -54,32 +116,48 @@ async function handleFileUpload(bot, msg, token) {
             message += `• Sucessos: ${result.sucessos}\n`;
             message += `• Erros: ${result.erros}\n`;
             message += `• Taxa: ${result.taxaSucesso}\n`;
-            message += `• Duração: ${result.duracao}\n\n`;
+            message += `• Duração: ${result.duracao}\n`;
 
+            // ✅ LIMITAR ERROS EXIBIDOS
             if (result.erros > 0) {
-                message += `⚠️ Erros encontrados:\n`;
-                result.detalhes.erros.slice(0, 5).forEach((erro, i) => {
-                    message += `${i + 1}. ${erro.nome} (${erro.codigo})\n`;
-                    message += `   └ ${erro.erro}\n`;
+                message += `\n⚠️ Erros encontrados:\n`;
+                const maxErros = Math.min(result.erros, 3); // Máximo 3 erros
+                
+                result.detalhes.erros.slice(0, maxErros).forEach((erro, i) => {
+                    const nomeSimplificado = erro.nome.substring(0, 50); // Limitar nome
+                    message += `${i + 1}. ${nomeSimplificado}${erro.nome.length > 50 ? '...' : ''}\n`;
+                    message += `   Código: ${erro.codigo}\n`;
+                    message += `   Erro: ${erro.erro}\n\n`;
                 });
                 
-                if (result.erros > 5) {
-                    message += `\n...e mais ${result.erros - 5} erros\n`;
+                if (result.erros > maxErros) {
+                    message += `...e mais ${result.erros - maxErros} erros\n\n`;
+                    message += `💡 Consulte os logs para detalhes completos.`;
                 }
             } else {
-                message += `🎉 Todos os produtos foram enviados com sucesso!`;
+                message += `\n🎉 Todos os produtos foram enviados com sucesso!`;
             }
 
-            // ✅ SEM parse_mode
-            await bot.sendMessage(chatId, message);
+            // ✅ ENVIAR COM PROTEÇÃO
+            await sendLongMessage(bot, chatId, message);
 
         } else {
-            await bot.sendMessage(chatId, `❌ Erro ao processar: ${result.error}`);
+            await bot.sendMessage(chatId, `❌ Erro: ${result.error}`);
         }
 
     } catch (error) {
-        console.error('❌ Erro ao processar arquivo:', error);
-        await bot.sendMessage(chatId, '❌ Erro ao processar arquivo. Verifique os logs ou tente novamente.');
+        console.error('❌ Erro ao processar:', error);
+        
+        try {
+            if (progressMsg) {
+                await bot.deleteMessage(chatId, progressMsg.message_id);
+            }
+        } catch (err) {}
+        
+        await bot.sendMessage(
+            chatId, 
+            '❌ Erro ao processar arquivo.\n\n💡 Verifique os logs ou tente novamente.'
+        );
     }
 }
 
@@ -99,7 +177,8 @@ async function downloadFile(bot, fileId, fileName, token) {
         const response = await axios({
             method: 'GET',
             url: fileUrl,
-            responseType: 'stream'
+            responseType: 'stream',
+            timeout: 60000 // 60 segundos
         });
 
         const writer = fs.createWriteStream(filePath);
