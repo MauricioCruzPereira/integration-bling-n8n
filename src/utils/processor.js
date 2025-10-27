@@ -1,7 +1,7 @@
 const XLSX = require('xlsx');
-const { fixEncoding } = require('../utils/encoding');
-const { expandVariations } = require('../utils/variations');
-const { parsePrice, parseDecimal } = require('../utils/price');
+const { fixEncoding } = require('./encoding');
+const { expandVariations } = require('./variations');
+const { parsePrice, parseDecimal } = require('./price');
 
 function processSpreadsheet(filePath) {
     const workbook = XLSX.readFile(filePath, {

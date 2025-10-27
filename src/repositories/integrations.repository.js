@@ -27,6 +27,50 @@ class IntegrationsRepository {
         return data;
     }
 
+    // ✅ FUNÇÃO CORRIGIDA
+    async findActiveByPhone(phoneNumber) {
+        console.log(`🔍 Verificando autorização para: ${phoneNumber}`);
+
+        // 1. Verificar se telefone está autorizado
+        const { data: phoneData, error: phoneError } = await supabase
+            .from('numero_telefone_liberado')
+            .select('*')
+            .eq('numero', phoneNumber)
+            .eq('ativo', true)
+            .single();
+
+        if (phoneError || !phoneData) {
+            console.log('❌ Telefone não autorizado ou inativo');
+            return [];
+        }
+
+        console.log(`✅ Telefone autorizado: ${phoneData.nome || phoneNumber}`);
+
+        // 2. Buscar TODAS as integrações ativas
+        const { data: integrations, error: intError } = await supabase
+            .from('integrations')
+            .select('id, name, token')
+            .eq('is_active', true)
+            .order('created_at', { ascending: true });
+
+        if (intError) {
+            console.error('❌ Erro ao buscar integrações:', intError);
+            return [];
+        }
+
+        if (!integrations || integrations.length === 0) {
+            console.log('⚠️ Nenhuma integração ativa encontrada');
+            return [];
+        }
+
+        console.log(`✅ ${integrations.length} integração(ões) ativa(s):`);
+        integrations.forEach((int, i) => {
+            console.log(`   ${i + 1}. ${int.name}`);
+        });
+
+        return integrations;
+    }
+
     async findById(id) {
         const { data, error } = await supabase
             .from('integrations')
