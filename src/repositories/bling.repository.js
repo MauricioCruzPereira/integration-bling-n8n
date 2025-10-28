@@ -6,10 +6,92 @@ class BlingRepository {
     }
 
     /**
+     * Testa se o token está válido
+     */
+    async testToken(token) {
+        try {
+            const response = await axios.get(
+                `${this.baseURL}/depositos`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/json'
+                    },
+                    timeout: 10000
+                }
+            );
+
+            return {
+                success: true,
+                data: response.data
+            };
+
+        } catch (error) {
+            return {
+                success: false,
+                error: error.response?.data?.error?.message || error.message
+            };
+        }
+    }
+
+    /**
+     * Renova token usando CODE
+     */
+    async renewTokenWithCode(code, clientId, clientSecret) {
+        try {
+            // Gerar Base64
+            const credentials = `${clientId}:${clientSecret}`;
+            const base64Credentials = Buffer.from(credentials).toString('base64');
+            
+            console.log('🔑 Renovando token com CODE...');
+            console.log(`   Client ID: ${clientId}`);
+            console.log(`   Base64: ${base64Credentials.substring(0, 20)}...`);
+            console.log(`   Code: ${code.substring(0, 20)}...`);
+            
+            const response = await axios.post(
+                'https://www.bling.com.br/Api/v3/oauth/token',
+                new URLSearchParams({
+                    'grant_type': 'authorization_code',
+                    'code': code
+                }),
+                {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': '1.0',  // ✅ CORRIGIDO!
+                        'Authorization': `Basic ${base64Credentials}`
+                    },
+                    timeout: 30000
+                }
+            );
+
+            console.log('✅ Token renovado com sucesso!');
+            console.log(`   Access Token: ${response.data.access_token.substring(0, 20)}...`);
+            console.log(`   Refresh Token: ${response.data.refresh_token.substring(0, 20)}...`);
+            console.log(`   Expires in: ${response.data.expires_in}s`);
+            
+            return {
+                success: true,
+                data: response.data
+            };
+
+        } catch (error) {
+            console.error('❌ Erro ao renovar token:', error.message);
+            
+            if (error.response) {
+                console.error('   Status:', error.response.status);
+                console.error('   Data:', error.response.data);
+            }
+            
+            return {
+                success: false,
+                error: error.response?.data?.error?.type || error.response?.data?.error || error.message,
+                details: error.response?.data?.error?.description || error.response?.data
+            };
+        }
+    }
+
+    /**
      * Cria um produto no Bling
-     * @param {Object} productData - Dados do produto
-     * @param {string} token - Token de autenticação
-     * @returns {Promise<Object>}
      */
     async createProduct(productData, token) {
         try {
@@ -47,9 +129,6 @@ class BlingRepository {
 
     /**
      * Busca produto por código
-     * @param {string} codigo - Código do produto
-     * @param {string} token - Token de autenticação
-     * @returns {Promise<Object>}
      */
     async findProductByCode(codigo, token) {
         try {
@@ -80,10 +159,6 @@ class BlingRepository {
 
     /**
      * Atualiza um produto existente
-     * @param {number} productId - ID do produto
-     * @param {Object} productData - Dados atualizados
-     * @param {string} token - Token de autenticação
-     * @returns {Promise<Object>}
      */
     async updateProduct(productId, productData, token) {
         try {

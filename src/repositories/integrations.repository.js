@@ -27,9 +27,9 @@ class IntegrationsRepository {
         return data;
     }
 
-    // ✅ FUNÇÃO CORRIGIDA
+    // ✅ FUNÇÃO ATUALIZADA - Retorna TODOS os campos
     async findActiveByPhone(phoneNumber) {
-        console.log(`🔍 Verificando autorização para: ${phoneNumber}`);
+        console.log(`🔍 Buscando integrações ativas para: ${phoneNumber}`);
 
         // 1. Verificar se telefone está autorizado
         const { data: phoneData, error: phoneError } = await supabase
@@ -46,10 +46,10 @@ class IntegrationsRepository {
 
         console.log(`✅ Telefone autorizado: ${phoneData.nome || phoneNumber}`);
 
-        // 2. Buscar TODAS as integrações ativas
+        // 2. Buscar TODAS as integrações ativas com TODOS os campos
         const { data: integrations, error: intError } = await supabase
             .from('integrations')
-            .select('id, name, token')
+            .select('*')  // ✅ MUDOU AQUI: Retorna TODOS os campos
             .eq('is_active', true)
             .order('created_at', { ascending: true });
 

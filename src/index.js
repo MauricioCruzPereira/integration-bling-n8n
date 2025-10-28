@@ -2,32 +2,16 @@ const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
 const authMiddleware = require('./middleware/auth.middleware');
-const { showMainMenu, handleMenuChoice } = require('./handlers/menu');
+const { showMainMenu, handleMenuChoice, handleIntegrationChoice, handleCode } = require('./handlers/menu');
 const { handleFileUpload } = require('./handlers/file');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-// ✅ CONFIGURAÇÕES OTIMIZADAS
-const bot = new TelegramBot(TELEGRAM_TOKEN, { 
-    polling: {
-        interval: 1000,
-        autoStart: true,
-        params: {
-            timeout: 10
-        }
-    },
-    request: {
-        agentOptions: {
-            keepAlive: true,
-            keepAliveMsecs: 30000
-        },
-        timeout: 60000 // 60 segundos
-    }
-});
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 const userStates = {};
 
 function resetUserState(userId) {
-    userStates[userId] = { step: 'initial', lastInteraction: Date.now() };
+    userStates[userId] = { step: 'initial', lastInteraction: Date.now(), data: null };
 }
 
 function getUserState(userId) {
@@ -35,11 +19,11 @@ function getUserState(userId) {
     return userStates[userId];
 }
 
-function setUserState(userId, step) {
-    userStates[userId] = { step: step, lastInteraction: Date.now() };
+function setUserState(userId, step, data = null) {
+    userStates[userId] = { step: step, lastInteraction: Date.now(), data: data };
 }
 
-// ✅ APLICAR MIDDLEWARE DE AUTENTICAÇÃO EM TODOS OS COMANDOS
+// Comando /start e /menu
 bot.onText(/\/start|\/menu/i, async (msg) => {
     await authMiddleware(bot, msg, async () => {
         const name = msg.from.first_name || 'usuário';
@@ -48,7 +32,7 @@ bot.onText(/\/start|\/menu/i, async (msg) => {
     });
 });
 
-// ✅ MENSAGENS DE TEXTO COM AUTENTICAÇÃO
+// Mensagens de texto
 bot.on('message', async (msg) => {
     if (msg.text && msg.text.startsWith('/')) return;
     if (msg.document) return;
@@ -58,6 +42,7 @@ bot.on('message', async (msg) => {
         const userState = getUserState(chatId);
 
         try {
+            // Saudações
             if (msg.text && msg.text.match(/(oi|olá|hey|bom dia|boa tarde|boa noite)/i)) {
                 const name = msg.from.first_name || 'usuário';
                 await showMainMenu(bot, chatId, name);
@@ -65,42 +50,43 @@ bot.on('message', async (msg) => {
                 return;
             }
 
+            // Menu principal
             if (userState.step === 'awaiting_menu_choice') {
                 await handleMenuChoice(bot, chatId, msg.text, setUserState);
-                if (msg.text !== '1') {
+                if (!['1', '5'].includes(msg.text.trim())) {
                     resetUserState(chatId);
                 }
-            } else {
+            }
+            // Escolher integração para renovar
+            else if (userState.step === 'awaiting_integration_choice') {
+                await handleIntegrationChoice(bot, chatId, msg.text, userState, setUserState);
+            }
+            // Receber CODE
+            else if (userState.step === 'awaiting_code') {
+                await handleCode(bot, chatId, msg.text, userState, setUserState);
+            }
+            // Estado desconhecido
+            else {
                 const name = msg.from.first_name || 'usuário';
                 await showMainMenu(bot, chatId, name);
                 setUserState(chatId, 'awaiting_menu_choice');
             }
         } catch (error) {
             console.error('❌ Erro:', error);
-            await bot.sendMessage(chatId,
-                '❌ *Erro inesperado*\n\n' +
-                '```\n' + error.message + '\n```\n\n' +
-                '💡 Digite /menu para reiniciar',
-                { parse_mode: 'Markdown' }
-            );
+            await bot.sendMessage(chatId, '❌ Erro inesperado. Digite /menu para reiniciar');
             resetUserState(chatId);
         }
     });
 });
 
-// ✅ UPLOAD DE ARQUIVO COM AUTENTICAÇÃO
+// Upload de arquivo
 bot.on('document', async (msg) => {
     await authMiddleware(bot, msg, async () => {
         const chatId = msg.chat.id;
         const userState = getUserState(chatId);
 
         if (userState.step !== 'awaiting_file') {
-            await bot.sendMessage(chatId,
-                '⚠️ *Atenção*\n\n' +
-                'Por favor, escolha a opção *1* no menu primeiro\n\n' +
-                '💡 Digite /menu para começar',
-                { parse_mode: 'Markdown' }
-            );
+            await bot.sendMessage(chatId, '⚠️ Escolha a opção 1 no menu primeiro!\n\n💡 Digite /menu');
             return;
         }
 
@@ -110,7 +96,7 @@ bot.on('document', async (msg) => {
     });
 });
 
-// ✅ LIMPEZA DE ESTADOS ANTIGOS
+// Limpeza de estados
 setInterval(() => {
     const now = Date.now();
     const oneHour = 60 * 60 * 1000;
@@ -120,9 +106,6 @@ setInterval(() => {
         }
     });
 }, 60 * 60 * 1000);
-
-// ✅ TRATAMENTO DE ERROS
-// Adicionar após a inicialização do bot:
 
 // ✅ TRATAMENTO ROBUSTO DE ERROS
 bot.on('polling_error', (error) => {
