@@ -5,17 +5,21 @@ const { parsePrice, parseDecimal } = require('./price');
 
 function processSpreadsheet(filePath) {
     const workbook = XLSX.readFile(filePath, {
-        raw: false,
+        raw: true,  // ✅ Mantém valores originais como string
         defval: '',
-        codepage: 65001
+        codepage: 65001,
+        cellDates: false,  // ✅ Desabilita conversão de datas
+        cellText: false,    // ✅ Não força formatação de texto
+        dateNF: 'yyyy-mm-dd' // ✅ Formato de data esperado (caso tenha datas reais)
     });
 
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const data = XLSX.utils.sheet_to_json(worksheet, {
-        raw: false,
+        raw: true,  // ✅ Mantém formato original
         defval: '',
-        blankrows: false
+        blankrows: false,
+        dateNF: 'yyyy-mm-dd'  // ✅ Formato de data
     });
 
     const fixedData = data.map(row => {
@@ -26,7 +30,7 @@ function processSpreadsheet(filePath) {
                 const textFields = ['nome', 'marca', 'descricaoCurta', 'descricaoCompleta', 'categoria', 'variacaoNome', 'fornecedorNome'];
                 fixedRow[key] = textFields.includes(key) ? fixEncoding(value) : value.trim();
             } else {
-                fixedRow[key] = value;
+                fixedRow[key] = String(value).trim();
             }
         });
         return fixedRow;
