@@ -91,39 +91,53 @@ class BlingRepository {
     }
 
     /**
-     * Cria um produto no Bling
+     * Cria um produto no Bling com retry
      */
-    async createProduct(productData, token) {
-        try {
-            const response = await axios.post(
-                `${this.baseURL}/produtos`,
-                productData,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    timeout: 30000
-                }
-            );
+    async createProduct(productData, token, retries = 3) {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                console.log(`   Tentativa ${attempt}/${retries}...`);
+                
+                const response = await axios.post(
+                    `${this.baseURL}/produtos`,
+                    productData,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        timeout: 60000  // ✅ AUMENTADO: 60 segundos
+                    }
+                );
 
-            return {
-                success: true,
-                data: response.data
-            };
+                return {
+                    success: true,
+                    data: response.data
+                };
 
-        } catch (error) {
-            console.error('❌ Erro ao criar produto no Bling:', error.message);
-            
-            return {
-                success: false,
-                error: {
-                    message: error.response?.data?.error?.message || error.message,
-                    details: error.response?.data?.error?.description || null,
-                    status: error.response?.status || null
+            } catch (error) {
+                const isTimeout = error.code === 'ECONNABORTED' || error.response?.status === 504;
+                const isLastAttempt = attempt === retries;
+                
+                if (isTimeout && !isLastAttempt) {
+                    console.log(`   ⏱️ Timeout - aguardando ${attempt * 2}s antes de tentar novamente...`);
+                    await new Promise(resolve => setTimeout(resolve, attempt * 2000)); // Backoff exponencial
+                    continue;
                 }
-            };
+                
+                console.error('❌ Erro ao criar produto no Bling:', error.message);
+                
+                return {
+                    success: false,
+                    error: {
+                        message: error.response?.data?.error?.message || error.message,
+                        details: error.response?.data?.error?.description || null,
+                        status: error.response?.status || null,
+                        isTimeout: isTimeout
+                    }
+                };
+            }
         }
     }
 

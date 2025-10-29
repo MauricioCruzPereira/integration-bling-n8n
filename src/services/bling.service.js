@@ -54,33 +54,36 @@ class BlingService {
      * @returns {Promise<Object>}
      */
     async sendProducts(products, integrations) {
-        console.log('\n═══════════════════════════════════════');
-        console.log('📦 INICIANDO ENVIO PARA O BLING');
-        console.log('═══════════════════════════════════════');
-        console.log(`   Produtos: ${products.length}`);
-        console.log(`   Integrações: ${integrations.length}`);
-        console.log(`   Total de envios: ${products.length * integrations.length}\n`);
+    console.log('\n╔═══════════════════════════════════════╗');
+    console.log('📦 INICIANDO ENVIO PARA O BLING');
+    console.log('╚═══════════════════════════════════════╝');
+    console.log(`   Produtos: ${products.length}`);
+    console.log(`   Integrações: ${integrations.length}`);
+    console.log(`   Total de envios: ${products.length * integrations.length}\n`);
 
-        const results = [];
-        const startTime = Date.now();
+    const results = [];
+    const startTime = Date.now();
 
-        for (const product of products) {
-            for (const integration of integrations) {
-                const result = await this.sendProduct(product, integration);
-                results.push(result);
+    for (const product of products) {
+        for (const integration of integrations) {
+            const result = await this.sendProduct(product, integration);
+            results.push(result);
 
-                // Delay entre requisições para não sobrecarregar a API
-                await this.delay(500);
-            }
+            // ✅ AUMENTADO: 2 segundos entre requisições
+            await this.delay(2000);
         }
+        
+        // ✅ DELAY EXTRA: Entre produtos diferentes
+        await this.delay(1000);
+    }
 
-        const endTime = Date.now();
-        const duration = ((endTime - startTime) / 1000).toFixed(2);
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
 
-        const summary = this.generateSummary(results, duration);
-        this.printSummary(summary);
+    const summary = this.generateSummary(results, duration);
+    this.printSummary(summary);
 
-        return summary;
+    return summary;
     }
 
     /**
