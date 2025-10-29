@@ -11,8 +11,9 @@ class BlingRepository {
     async testToken(token) {
         try {
             const response = await axios.get(
-                `${this.baseURL}/depositos`,
+                `${this.baseURL}/produtos`,
                 {
+                    params: { limite: 1 },
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Accept': 'application/json'
