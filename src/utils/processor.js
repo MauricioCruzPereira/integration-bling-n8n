@@ -55,6 +55,18 @@ function groupProductsByCode(rows) {
     return Object.values(grouped);
 }
 
+function processImageUrls(urlsString) {
+    if (!urlsString || typeof urlsString !== 'string') return [];
+    
+    const separator = urlsString.includes('|') ? '|' : ',';
+    
+    return urlsString
+        .split(separator)
+        .map(url => url.trim())
+        .filter(url => url && (url.startsWith('http://') || url.startsWith('https://')))
+        .map(url => ({ link: url }));
+}
+
 function formatProduct(group) {
     const produtoPai = group.produto;
     const variacoes = group.variacoes;
@@ -63,6 +75,23 @@ function formatProduct(group) {
     console.log(`\n📦 Produto: "${produtoPai.nome}"`);
     console.log(`   Código: ${produtoPai.codigo}`);
     console.log(`   Preço: R$ ${precoProdutoPai.toFixed(2)}`);
+
+    // ✅ PROCESSAR IMAGENS
+    const imagemPrincipal = (produtoPai.imagemPrincipalUrl || '').trim();
+    const imagensAdicionais = processImageUrls(produtoPai.imagensAdicionaisUrls || '');
+    
+    const todasImagens = [];
+    if (imagemPrincipal) {
+        todasImagens.push({ link: imagemPrincipal });
+    }
+    todasImagens.push(...imagensAdicionais);
+
+    if (todasImagens.length > 0) {
+        console.log(`   🖼️ Imagens: ${todasImagens.length}`);
+        todasImagens.forEach((img, i) => {
+            console.log(`      ${i + 1}. ${img.link}`);
+        });
+    }
 
     const product = {
         nome: fixEncoding(produtoPai.nome) || '',
@@ -95,6 +124,17 @@ function formatProduct(group) {
         }
     };
 
+    // ✅ ADICIONAR IMAGENS NO PRODUTO PAI
+    if (todasImagens.length > 0) {
+        product.midia = {
+            video: [],
+            imagens: {
+                imagensURL: todasImagens
+            }
+        };
+        console.log('   ✅ Imagens adicionadas ao produto PAI');
+    }
+
     if (variacoes.length > 0) {
         const tiposVariacao = new Set();
         variacoes.forEach(v => {
@@ -117,9 +157,9 @@ function formatProduct(group) {
 
             console.log(`   ✅ Variação ${index + 1}: ${v.variacaoNome}`);
             console.log(`      Código: ${varRow.codigo}`);
-            console.log(`      Preço: R$ ${precoProdutoPai.toFixed(2)}`);
 
-            return {
+            const variacaoObj = {
+                id: 0,
                 codigo: varRow.codigo,
                 preco: parsePrice(varRow.preco) || precoProdutoPai,
                 tipo: 'P',
@@ -130,6 +170,7 @@ function formatProduct(group) {
                 pesoBruto: parseDecimal(varRow.pesoBruto) || parseDecimal(produtoPai.pesoBruto),
                 volumes: parseInt(varRow.volumes) || parseInt(produtoPai.volumes) || 1,
                 itensPorCaixa: parseInt(varRow.itensPorCaixa) || parseInt(produtoPai.itensPorCaixa) || 1,
+                gtin: varRow.gtin || '',
                 dimensoes: {
                     largura: parseDecimal(varRow.largura) || parseDecimal(produtoPai.largura),
                     altura: parseDecimal(varRow.altura) || parseDecimal(produtoPai.altura),
@@ -139,10 +180,29 @@ function formatProduct(group) {
                 variacao: {
                     nome: v.variacaoNome,
                     produtoPai: {
-                        cloneInfo: true
+                        id: 0
                     }
                 }
             };
+
+            // ✅ ADICIONAR IMAGENS NAS VARIAÇÕES TAMBÉM!
+            if (todasImagens.length > 0) {
+                variacaoObj.midia = {
+                    imagens: {
+                        externas: [],
+                        imagensURL: todasImagens  // ← MESMAS IMAGENS DO PAI!
+                    }
+                };
+                console.log(`      🖼️ ${todasImagens.length} imagem(ns) adicionadas`);
+            } else {
+                variacaoObj.midia = {
+                    imagens: {
+                        externas: []
+                    }
+                };
+            }
+
+            return variacaoObj;
         });
     }
 
