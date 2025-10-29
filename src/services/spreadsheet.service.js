@@ -29,7 +29,8 @@ class SpreadsheetService {
 
             return {
                 success: true,
-                ...result
+                ...result,
+                reportPath: result.reportPath || null  // ✅ Incluir caminho do relatório
             };
 
         } catch (error) {

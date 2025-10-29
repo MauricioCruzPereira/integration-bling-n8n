@@ -3,6 +3,33 @@ const { fixEncoding } = require('./encoding');
 const { expandVariations } = require('./variations');
 const { parsePrice, parseDecimal } = require('./price');
 
+// ✅ FUNÇÕES AUXILIARES PARA NCM E CEST
+function sanitizeNCM(ncm) {
+    if (!ncm) return '';
+    // Remove tudo que não é número
+    const cleaned = String(ncm).replace(/\D/g, '');
+    // NCM deve ter exatamente 8 dígitos
+    if (cleaned.length === 8) {
+        return cleaned;
+    }
+    // Se não tem 8 dígitos, retorna vazio para não causar erro
+    console.log(`   ⚠️ NCM inválido ignorado: "${ncm}" (${cleaned.length} dígitos)`);
+    return '';
+}
+
+function sanitizeCEST(cest) {
+    if (!cest) return '';
+    // Remove tudo que não é número
+    const cleaned = String(cest).replace(/\D/g, '');
+    // CEST deve ter exatamente 7 dígitos
+    if (cleaned.length === 7) {
+        return cleaned;
+    }
+    // Se não tem 7 dígitos, retorna vazio para não causar erro
+    console.log(`   ⚠️ CEST inválido ignorado: "${cest}" (${cleaned.length} dígitos)`);
+    return '';
+}
+
 function processSpreadsheet(filePath) {
     const workbook = XLSX.readFile(filePath, {
         raw: true,  // ✅ Mantém valores originais como string
@@ -112,7 +139,7 @@ function formatProduct(group) {
         gtin: produtoPai.gtin || '',
         gtinEmbalagem: produtoPai.gtinTributario || '',
         marca: fixEncoding(produtoPai.marca) || '',
-        descricaoCurta: fixEncoding(produtoPai.descricaoCurta) || '',
+        descricaoCurta: (fixEncoding(produtoPai.descricaoCurta) || '').substring(0, 5000), // ✅ Limita a 5000 caracteres
         freteGratis: produtoPai.freteGratis === 'S' || produtoPai.freteGratis === 'Sim',
         dimensoes: {
             largura: parseDecimal(produtoPai.largura),
@@ -122,8 +149,8 @@ function formatProduct(group) {
         },
         tributacao: {
             origem: parseInt(produtoPai.origem) || 0,
-            ncm: produtoPai.ncm || '',
-            cest: produtoPai.cest || '',
+            ncm: sanitizeNCM(produtoPai.ncm),
+            cest: sanitizeCEST(produtoPai.cest),
             unidadeMedida: produtoPai.unidade || 'UN'
         }
     };

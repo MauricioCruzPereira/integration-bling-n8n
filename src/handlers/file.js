@@ -38,10 +38,29 @@ async function sendLongMessage(bot, chatId, message, maxLength = 4000) {
         try {
             const header = i === 0 ? '' : `📄 Continuação (${i + 1}/${parts.length}):\n\n`;
             await bot.sendMessage(chatId, header + parts[i]);
-            await new Promise(resolve => setTimeout(resolve, 500)); // Delay entre mensagens
+            await new Promise(resolve => setTimeout(resolve, 500));
         } catch (error) {
             console.error(`Erro ao enviar parte ${i + 1}:`, error.message);
         }
+    }
+}
+
+// ✅ NOVA FUNÇÃO: Enviar arquivo TXT via Telegram
+async function sendErrorReport(bot, chatId, reportPath) {
+    try {
+        if (!fs.existsSync(reportPath)) {
+            console.log('   ⚠️ Relatório não encontrado, não será enviado');
+            return;
+        }
+
+        // Enviar arquivo
+        await bot.sendDocument(chatId, reportPath, {
+            caption: '📄 Relatório detalhado de erros'
+        });
+
+        console.log('   ✅ Relatório enviado via Telegram');
+    } catch (error) {
+        console.error('   ⚠️ Erro ao enviar relatório:', error.message);
     }
 }
 
@@ -118,28 +137,44 @@ async function handleFileUpload(bot, msg, token) {
             message += `• Taxa: ${result.taxaSucesso}\n`;
             message += `• Duração: ${result.duracao}\n`;
 
-            // ✅ LIMITAR ERROS EXIBIDOS
+            // ✅ MOSTRAR ERROS AGRUPADOS POR TIPO
             if (result.erros > 0) {
-                message += `\n⚠️ Erros encontrados:\n`;
-                const maxErros = Math.min(result.erros, 3); // Máximo 3 erros
+                message += `\n📋 Erros por tipo:\n`;
+                
+                if (result.errorsByType) {
+                    Object.keys(result.errorsByType).forEach(type => {
+                        const count = result.errorsByType[type].length;
+                        const emoji = result.errorsByType[type][0]?.emoji || '❌';
+                        message += `${emoji} ${type}: ${count}\n`;
+                    });
+                }
+                
+                message += `\n⚠️ Primeiros erros:\n`;
+                const maxErros = Math.min(result.erros, 3);
                 
                 result.detalhes.erros.slice(0, maxErros).forEach((erro, i) => {
-                    const nomeSimplificado = erro.nome.substring(0, 50); // Limitar nome
-                    message += `${i + 1}. ${nomeSimplificado}${erro.nome.length > 50 ? '...' : ''}\n`;
-                    message += `   Código: ${erro.codigo}\n`;
-                    message += `   Erro: ${erro.erro}\n\n`;
+                    const nomeSimplificado = erro.nome.substring(0, 40);
+                    message += `${i + 1}. ${nomeSimplificado}${erro.nome.length > 40 ? '...' : ''}\n`;
+                    message += `   ${erro.emoji || '❌'} ${erro.tipo}\n`;
+                    message += `   Código: ${erro.codigo}\n\n`;
                 });
                 
                 if (result.erros > maxErros) {
                     message += `...e mais ${result.erros - maxErros} erros\n\n`;
-                    message += `💡 Consulte os logs para detalhes completos.`;
                 }
+                
+                message += `📄 Relatório completo será enviado em seguida`;
             } else {
                 message += `\n🎉 Todos os produtos foram enviados com sucesso!`;
             }
 
-            // ✅ ENVIAR COM PROTEÇÃO
+            // Enviar resumo
             await sendLongMessage(bot, chatId, message);
+            
+            // ✅ ENVIAR ARQUIVO TXT SE HOUVER ERROS
+            if (result.erros > 0 && result.reportPath) {
+                await sendErrorReport(bot, chatId, result.reportPath);
+            }
 
         } else {
             await bot.sendMessage(chatId, `❌ Erro: ${result.error}`);
@@ -178,7 +213,7 @@ async function downloadFile(bot, fileId, fileName, token) {
             method: 'GET',
             url: fileUrl,
             responseType: 'stream',
-            timeout: 60000 // 60 segundos
+            timeout: 60000
         });
 
         const writer = fs.createWriteStream(filePath);
