@@ -153,10 +153,12 @@ async function handleFileUpload(bot, msg, token) {
                 const maxErros = Math.min(result.erros, 3);
                 
                 result.detalhes.erros.slice(0, maxErros).forEach((erro, i) => {
-                    const nomeSimplificado = erro.nome.substring(0, 40);
-                    message += `${i + 1}. ${nomeSimplificado}${erro.nome.length > 40 ? '...' : ''}\n`;
+                    message += `${i + 1}. ${erro.nome}\n`;
                     message += `   ${erro.emoji || '❌'} ${erro.tipo}\n`;
-                    message += `   Código: ${erro.codigo}\n\n`;
+                    message += `   Código: ${erro.codigo}\n`;
+                    if (erro.erro) message += `   ⚠️ ${erro.erro}\n`;
+                    if (erro.detalhes) message += `   📝 ${erro.detalhes}\n`;
+                    message += '\n';
                 });
                 
                 if (result.erros > maxErros) {

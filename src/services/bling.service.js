@@ -263,22 +263,22 @@ class BlingService {
                 report += '│\n';
                 
                 errosDoTipo.forEach((erro, index) => {
-                    report += `├─ ${index + 1}. ${erro.nome}\n`;
-                    report += `│  Código: ${erro.codigo}\n`;
-                    report += `│  Integração: ${erro.integracao}\n`;
-                    report += `│  Erro: ${erro.erro}\n`;
-                    
-                    if (erro.detalhes) {
-                        report += `│  Detalhes: ${erro.detalhes}\n`;
+                    report += `├─ ${index + 1}. ${erro.productName || erro.nome || 'N/A'}\n`;
+                    report += `│  Código: ${erro.productCode || erro.codigo || 'N/A'}\n`;
+                    report += `│  Integração: ${erro.integrationName || erro.integracao || 'N/A'}\n`;
+                    report += `│  Erro: ${erro.error || erro.erro || 'N/A'}\n`;
+
+                    if (erro.details || erro.detalhes) {
+                        report += `│  Detalhes: ${erro.details || erro.detalhes}\n`;
                     }
-                    
+
                     if (erro.fields && erro.fields.length > 0) {
                         report += `│  Campos com problema:\n`;
                         erro.fields.forEach(field => {
-                            report += `│    • ${field.field}: ${field.msg}\n`;
+                            report += `│    • ${field.field || field.msg}: ${field.msg || ''}\n`;
                         });
                     }
-                    
+
                     report += '│\n';
                 });
                 

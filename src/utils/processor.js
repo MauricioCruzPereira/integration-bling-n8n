@@ -93,7 +93,7 @@ function processImageUrls(urlsString) {
     
     return urlsString
         .split(separator)
-        .map(url => url.trim())
+        .map(url => url.trim().replace(/[;,\s]+$/, ''))
         .filter(url => url && (url.startsWith('http://') || url.startsWith('https://')))
         .map(url => ({ link: url }));
 }
