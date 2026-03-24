@@ -12,11 +12,10 @@ ENV TZ=America/Sao_Paulo
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 COPY package*.json ./
-
 RUN npm install --production
 
-COPY chatbot-telegram.js ./
+COPY src/ ./src/
 
-RUN mkdir -p logs
+RUN mkdir -p temp logs
 
-CMD ["node", "chatbot-telegram.js"]
+CMD ["node", "src/index.js"]

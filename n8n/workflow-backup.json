@@ -13,7 +13,7 @@
             },
             {
               "name": "Authorization",
-              "value": "Basic OTk5MGUxMjc4NzRjODc3OGE3NzAwYjIwODRkN2I0YmY2YjY2NDZhZTpiMjk5ZDBjNzcxNTI2MGU2MDE5MmY4N2QzNzY0ZDA1YTJmNDEwNDQzY2Y1Zjc2OTkxOTAzMjZiZDUxOTQ="
+              "value": "=Basic md5()"
             },
             {
               "name": "Cookie",
@@ -145,182 +145,124 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "27f17d76-936d-4971-a46a-34384ae687bb",
+      "id": "ae1df4e3-0410-4b69-8ecb-5337473ec475",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [
-        -384,
-        560
+        -448,
+        544
       ],
-      "webhookId": "29ed1391-1897-4256-b7fb-a11a33dcf77f",
-      "executeOnce": false
+      "webhookId": "zapi-webhook"
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "if (!$json.body?.products || !Array.isArray($json.body.products)) {\n  throw new Error('❌ Nenhum produto no payload');\n}\nif (!$json.body?.integrations || !Array.isArray($json.body.integrations) || $json.body.integrations.length === 0) {\n  throw new Error('❌ Nenhuma integração no payload');\n}\n\nconst products = $json.body.products;\nconst integrations = $json.body.integrations;\n\nconsole.log('✅ Produtos:', products.length);\nconsole.log('✅ Integrações:', integrations.length);\n\nreturn {\n  chatId: $json.chatId || null,\n  timestamp: $json.timestamp || Date.now(),\n  products: products,\n  integrations: integrations\n};"
+        "jsCode": "const body = $input.item.json.body;\n\nif (!body || !body.products || !Array.isArray(body.products)) {\n  throw new Error('❌ Formato inválido');\n}\n\nif (body.products.length === 0) {\n  throw new Error('❌ Nenhum produto');\n}\n\nif (!body.integrations || !Array.isArray(body.integrations)) {\n  throw new Error('❌ Nenhuma integração');\n}\n\nreturn { json: body };"
       },
-      "id": "97de3769-2382-4000-8838-30e23ffc3c43",
+      "id": "c4309590-b569-42c5-ac4a-38ee64bd2756",
       "name": "Validar Dados",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -192,
-        560
+        -240,
+        544
       ]
     },
     {
       "parameters": {
-        "jsCode": "const products = $json.products;\nconst integrations = $json.integrations;\n\nconst items = [];\n\nfor (const product of products) {\n  for (const integration of integrations) {\n    items.push({\n      json: {\n        product: product,\n        integrationId: integration.id,\n        integrationName: integration.name,\n        integrationToken: integration.token\n      }\n    });\n  }\n}\n\nconsole.log('📦 Total:', items.length);\nreturn items;"
+        "jsCode": "const data = $input.item.json;\nconst products = data.products;\nconst integrations = data.integrations;\n\nconst envios = [];\n\nproducts.forEach(product => {\n  integrations.forEach(integration => {\n    envios.push({\n      ...product,\n      integrationId: integration.id,\n      integrationName: integration.name,\n      integrationToken: integration.token,\n      chatId: data.chatId\n    });\n  });\n});\n\nreturn envios.map(e => ({ json: e }));"
       },
-      "id": "bf0b4537-6a08-4422-9969-49390377514c",
+      "id": "5a6623ce-5db8-4ecf-90e4-c2e3cd3a8000",
       "name": "Preparar Envios",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        16,
-        560
+        -48,
+        544
       ]
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const p = $json.product;\nconst integrationId = $json.integrationId;\nconst integrationName = $json.integrationName;\nconst integrationToken = $json.integrationToken;\n\nlet variacoes = null;\nif (p.variacoes && Array.isArray(p.variacoes) && p.variacoes.length > 0) {\n  variacoes = p.variacoes;\n}\n\nreturn {\n  nome: p.nome || '',\n  codigo: p.codigo || '',\n  preco: parseFloat(p.preco) || 0,\n  tipo: p.tipo || 'P',\n  situacao: p.situacao || 'A',\n  formato: p.formato || (variacoes ? 'V' : 'S'),\n  unidade: p.unidade || 'UN',\n  pesoLiquido: parseFloat(p.pesoLiquido) || 0,\n  pesoBruto: parseFloat(p.pesoBruto) || 0,\n  marca: p.marca || '',\n  linkExterno: p.linkExterno || '',\n  altura: parseFloat(p.altura) || 0,\n  largura: parseFloat(p.largura) || 0,\n  profundidade: parseFloat(p.profundidade) || 0,\n  variacoes: variacoes,\n  hasVariations: variacoes !== null,\n  integrationId: integrationId,\n  integrationName: integrationName,\n  integrationToken: integrationToken\n};"
+        "jsCode": "const p = $input.item.json;\n\nconst produtoFormatado = {\n  nome: p.nome || '',\n  codigo: p.codigo || '',\n  preco: parseFloat(p.preco) || 0,\n  tipo: p.tipo || 'P',\n  situacao: p.situacao || 'A',\n  formato: p.formato || 'S',\n  unidade: p.unidade || 'UN',\n  pesoLiquido: parseFloat(p.pesoLiquido) || 0,\n  pesoBruto: parseFloat(p.pesoBruto) || 0,\n  volumes: parseInt(p.volumes) || 1,\n  itensPorCaixa: parseInt(p.itensPorCaixa) || 1,\n  gtin: p.gtin || '',\n  gtinEmbalagem: p.gtinEmbalagem || '',\n  marca: p.marca || '',\n  descricaoCurta: p.descricaoCurta || '',\n  freteGratis: p.freteGratis || false,\n  dimensoes: p.dimensoes || {},\n  tributacao: p.tributacao || {},\n  variacoes: p.variacoes || [],\n  integrationId: p.integrationId,\n  integrationName: p.integrationName,\n  integrationToken: p.integrationToken,\n  chatId: p.chatId\n};\n\nreturn { json: produtoFormatado };"
       },
-      "id": "1811a83b-6c1a-4f88-b2a9-46f663da2bd8",
+      "id": "619d38e8-0698-42ea-a44b-aed40fdafe0b",
       "name": "Formatar Produto",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        208,
-        560
-      ],
-      "notesInFlow": false
+        160,
+        544
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 1
-          },
-          "conditions": [
+          "boolean": [
             {
-              "id": "has-var",
-              "leftValue": "={{ $json.hasVariations }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true"
-              }
+              "value1": "={{ $json.variacoes && $json.variacoes.length > 0 }}",
+              "value2": true
             }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
+          ]
+        }
       },
-      "id": "5c5d6f52-abc5-4116-8b9d-c4706e363fcc",
+      "id": "971e2b85-2198-4527-a3c6-623bf52aebd1",
       "name": "Tem Variações?",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
+      "typeVersion": 1,
       "position": [
-        416,
-        560
+        368,
+        544
       ]
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const p = $json;\n\nif (!p.variacoes || !Array.isArray(p.variacoes) || p.variacoes.length === 0) {\n  throw new Error('❌ Sem variações');\n}\n\n// ✅ EXTRAIR TIPOS DE VARIAÇÃO\nconst tiposVariacao = new Set();\np.variacoes.forEach(v => {\n  const variacaoNome = v.variacao?.nome;\n  if (variacaoNome) {\n    const parts = variacaoNome.split(';');\n    parts.forEach(part => {\n      const [tipo] = part.split(':');\n      if (tipo) tiposVariacao.add(tipo.trim());\n    });\n  }\n});\n\nconst primeiroTipo = Array.from(tiposVariacao)[0] || 'Tamanho';\n\nconst variacoesArray = p.variacoes.map(v => {\n  return {\n    id: 0,\n    codigo: v.codigo || `${p.codigo}-VAR`,\n    preco: parseFloat(v.preco) || parseFloat(p.preco) || 0,\n    tipo: \"P\",\n    situacao: \"A\",\n    formato: \"S\",\n    unidade: v.unidade || p.unidade || \"UN\",\n    pesoLiquido: parseFloat(v.pesoLiquido) || parseFloat(p.pesoLiquido) || 0,\n    pesoBruto: parseFloat(v.pesoBruto) || parseFloat(p.pesoBruto) || 0,\n    dimensoes: {\n      largura: parseFloat(v.dimensoes?.largura) || parseFloat(p.largura) || 0,\n      altura: parseFloat(v.dimensoes?.altura) || parseFloat(p.altura) || 0,\n      profundidade: parseFloat(v.dimensoes?.profundidade) || parseFloat(p.profundidade) || 0,\n      unidadeMedida: 1\n    },\n    midia: {\n      imagens: {\n        externas: v.midia?.imagens?.externas || []\n      }\n    },\n    variacao: {\n      nome: v.variacao?.nome || '',\n      produtoPai: {\n        cloneInfo: true\n      }\n    }\n  };\n});\n\nconst productBody = {\n  nome: p.nome,\n  codigo: p.codigo,\n  tipo: \"P\",\n  situacao: \"A\",\n  formato: \"V\",\n  variacao: {\n    nome: primeiroTipo.charAt(0).toUpperCase() + primeiroTipo.slice(1)\n  },\n  variacoes: variacoesArray\n};\n\nconsole.log('📦 Produto:', p.nome);\nconsole.log('🔢 Variações:', variacoesArray.length);\nconsole.log('🏷️ Tipo variação:', primeiroTipo);\n\nreturn {\n  productBody: productBody,\n  productCode: p.codigo,\n  productName: p.nome,\n  integrationId: p.integrationId,\n  integrationName: p.integrationName,\n  integrationToken: p.integrationToken\n};"
+        "jsCode": "const p = $json;\n\nif (!p.variacoes || !Array.isArray(p.variacoes) || p.variacoes.length === 0) {\n  throw new Error('❌ Sem variações');\n}\n\nconst tiposVariacao = new Set();\np.variacoes.forEach(v => {\n  const variacaoNome = v.variacao?.nome || '';\n  if (variacaoNome) {\n    variacaoNome.split(';').forEach(part => {\n      const [tipo] = part.split(':');\n      if (tipo) tiposVariacao.add(tipo.trim());\n    });\n  }\n});\n\nconst primeiroTipo = Array.from(tiposVariacao)[0] || 'Tamanho';\n\nconst variacoesArray = p.variacoes.map(v => ({\n  nome: p.nome,\n  codigo: v.codigo,\n  preco: parseFloat(v.preco) || 0,\n  tipo: \"P\",\n  situacao: \"A\",\n  formato: \"S\",\n  unidade: v.unidade || \"UN\",\n  pesoLiquido: parseFloat(v.pesoLiquido) || 0,\n  pesoBruto: parseFloat(v.pesoBruto) || 0,\n  volumes: parseInt(v.volumes) || 1,\n  itensPorCaixa: parseInt(v.itensPorCaixa) || 1,\n  gtin: v.gtin || '',\n  gtinEmbalagem: v.gtinEmbalagem || '',\n  marca: p.marca || '',\n  descricaoCurta: p.descricaoCurta || '',\n  descricaoComplementar: p.descricaoComplementar || '',\n  categoria: p.categoria || {},\n  tributacao: p.tributacao || {},\n  dimensoes: v.dimensoes || {},\n  variacao: {\n    nome: v.variacao?.nome || '',\n    produtoPai: { cloneInfo: false }\n  }\n}));\n\nconst productBody = {\n  nome: p.nome,\n  codigo: p.codigo,\n  preco: 0,\n  tipo: \"P\",\n  situacao: \"A\",\n  formato: \"V\",\n  unidade: p.unidade || \"UN\",\n  marca: p.marca || '',\n  descricaoCurta: p.descricaoCurta || '',\n  descricaoComplementar: p.descricaoComplementar || '',\n  categoria: p.categoria || {},\n  tributacao: p.tributacao || {},\n  dimensoes: p.dimensoes || {},\n  variacao: { nome: primeiroTipo },\n  variacoes: variacoesArray\n};\n\nreturn {\n  productBody,\n  productCode: p.codigo,\n  productName: p.nome,\n  integrationId: p.integrationId,\n  integrationName: p.integrationName,\n  integrationToken: p.integrationToken\n};"
       },
-      "id": "90f7d391-9af1-4a0f-a53a-7991398e3eb8",
+      "id": "14e4304a-0039-4e63-bade-77d4a08a889f",
       "name": "JSON com Variações",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        624,
-        464
+        560,
+        432
       ]
     },
     {
       "parameters": {
-        "jsCode": "const p = $json;\n\nconst productBody = {\n  nome: p.nome,\n  codigo: p.codigo,\n  preco: p.preco,\n  tipo: p.tipo,\n  situacao: p.situacao,\n  formato: \"S\",\n  unidade: p.unidade,\n  pesoLiquido: p.pesoLiquido,\n  pesoBruto: p.pesoBruto,\n  dimensoes: {\n    largura: p.largura,\n    altura: p.altura,\n    profundidade: p.profundidade,\n    unidadeMedida: 1\n  },\n  ...(p.marca && { marca: p.marca }),\n  ...(p.linkExterno && { linkExterno: p.linkExterno })\n};\n\nreturn {\n  productBody: productBody,\n  productCode: p.codigo,\n  productName: p.nome,\n  integrationId: p.integrationId,\n  integrationName: p.integrationName,\n  integrationToken: p.integrationToken\n};"
+        "jsCode": "const p = $json;\n\nconst productBody = {\n  nome: p.nome,\n  codigo: p.codigo,\n  preco: parseFloat(p.preco) || 0,\n  tipo: p.tipo || 'P',\n  situacao: p.situacao || 'A',\n  formato: 'S',\n  unidade: p.unidade || 'UN',\n  pesoLiquido: parseFloat(p.pesoLiquido) || 0,\n  pesoBruto: parseFloat(p.pesoBruto) || 0,\n  volumes: parseInt(p.volumes) || 1,\n  itensPorCaixa: parseInt(p.itensPorCaixa) || 1,\n  gtin: p.gtin || '',\n  gtinEmbalagem: p.gtinEmbalagem || '',\n  marca: p.marca || '',\n  descricaoCurta: p.descricaoCurta || '',\n  descricaoComplementar: p.descricaoComplementar || '',\n  freteGratis: p.freteGratis || false,\n  categoria: p.categoria || {},\n  tributacao: p.tributacao || {},\n  dimensoes: p.dimensoes || {}\n};\n\nreturn {\n  productBody,\n  productCode: p.codigo,\n  productName: p.nome,\n  integrationId: p.integrationId,\n  integrationName: p.integrationName,\n  integrationToken: p.integrationToken\n};"
       },
-      "id": "6bb01165-6cbf-4965-a1ff-5e4bacaa9fe9",
-      "name": "JSON Simples",
+      "id": "16844e53-1c8f-49d3-812e-e8a6c8c76d6d",
+      "name": "JSON Produto Simples",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        624,
-        656
+        560,
+        640
       ]
     },
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "meta-code",
-              "name": "_productCode",
-              "value": "={{ $json.productCode }}",
-              "type": "string"
-            },
-            {
-              "id": "meta-name",
-              "name": "_productName",
-              "value": "={{ $json.productName }}",
-              "type": "string"
-            },
-            {
-              "id": "meta-int-id",
-              "name": "_integrationId",
-              "value": "={{ $json.integrationId }}",
-              "type": "string"
-            },
-            {
-              "id": "meta-int-name",
-              "name": "_integrationName",
-              "value": "={{ $json.integrationName }}",
-              "type": "string"
-            },
-            {
-              "id": "body",
-              "name": "productBody",
-              "value": "={{ $json.productBody }}",
-              "type": "object"
-            },
-            {
-              "id": "token",
-              "name": "integrationToken",
-              "value": "={{ $json.integrationToken }}",
-              "type": "string"
-            }
-          ]
-        },
         "options": {}
       },
-      "id": "a5e5e94f-d954-418e-8134-cc1f3ca3025d",
+      "id": "945e08c0-f1f7-4764-bc9d-968ea22ffcdf",
       "name": "Guardar Metadados",
       "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "typeVersion": 3.2,
       "position": [
-        832,
-        560
+        768,
+        544
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://www.bling.com.br/Api/v3/produtos",
+        "url": "https://api.bling.com.br/Api/v3/produtos",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{ $json.integrationToken }}"
+              "value": "={{ \"Bearer \" + $json.integrationToken }}"
             },
             {
               "name": "Content-Type",
@@ -334,38 +276,29 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ $json.productBody }}",
-        "options": {
-          "batching": {
-            "batch": {
-              "batchSize": 1
-            }
-          },
-          "timeout": 30000
-        }
+        "jsonBody": "={{ JSON.stringify($json.productBody) }}",
+        "options": {}
       },
-      "id": "e271484c-1a08-4ac3-9ab7-aa7b16fc935d",
+      "id": "46d1a369-6c25-463c-90b0-4f00845c3da8",
       "name": "Enviar para Bling",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1040,
-        560
-      ],
-      "onError": "continueRegularOutput"
+        960,
+        544
+      ]
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const allData = $input.item.json;\n\n// Extrai resposta do Bling\nlet blingResponse = allData;\n\nif (typeof blingResponse === 'string') {\n  try {\n    blingResponse = JSON.parse(blingResponse);\n  } catch (e) {\n    console.error('❌ Parse error:', e.message);\n  }\n}\n\nif (Array.isArray(blingResponse) && blingResponse.length > 0) {\n  blingResponse = blingResponse[0];\n}\n\n// RECUPERA METADADOS QUE FORAM GUARDADOS NO NÓ SET\nconst productCode = allData._productCode || 'N/A';\nconst productName = allData._productName || 'N/A';\nconst integrationId = allData._integrationId || null;\nconst integrationName = allData._integrationName || 'Desconhecida';\n\nlet status = 'erro';\nlet message = 'Erro desconhecido';\nlet blingId = null;\nlet variationsSaved = 0;\n\nconsole.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');\nconsole.log('🔍 PRODUTO:', productName);\nconsole.log('📦 Código:', productCode);\nconsole.log('🔗 Integração:', integrationName);\n\ntry {\n  if (blingResponse && blingResponse.data && blingResponse.data.id) {\n    status = 'sucesso';\n    blingId = blingResponse.data.id;\n    message = 'Produto cadastrado';\n    \n    if (blingResponse.data.variations?.saved) {\n      variationsSaved = blingResponse.data.variations.saved.length;\n      if (variationsSaved > 0) {\n        message = `Produto com ${variationsSaved} variação(ões)`;\n      }\n    }\n    \n    console.log('✅ SUCESSO! ID:', blingId);\n  }\n  else if (blingResponse && blingResponse.error) {\n    message = blingResponse.error.message || 'Erro';\n    \n    if (blingResponse.error.type === 'validation' && blingResponse.error.fields) {\n      const fieldErrors = [];\n      \n      blingResponse.error.fields.forEach(field => {\n        if (field.code === 4) status = 'duplicado';\n        \n        if (field.collection && Array.isArray(field.collection)) {\n          field.collection.forEach(varError => {\n            if (varError.collection) {\n              varError.collection.forEach(err => {\n                if (err.code === 4) status = 'duplicado';\n                fieldErrors.push(`[Var ${varError.index + 1}] ${err.msg}`);\n              });\n            }\n          });\n        } else if (field.msg) {\n          fieldErrors.push(field.msg);\n        }\n      });\n      \n      if (fieldErrors.length > 0) message = fieldErrors.join(' | ');\n    }\n    \n    const msgLower = message.toLowerCase();\n    if (msgLower.includes('já existe') || msgLower.includes('duplicado')) {\n      status = 'duplicado';\n    }\n    \n    console.log('⚠️', status.toUpperCase());\n  }\n  else if (allData.statusCode && allData.statusCode >= 400) {\n    message = `HTTP ${allData.statusCode}`;\n    console.log('❌ ERROR');\n  }\n  else {\n    message = 'Resposta inesperada';\n    console.log('⚠️ RESPOSTA INESPERADA');\n  }\n} catch (e) {\n  status = 'erro';\n  message = `Exceção: ${e.message}`;\n  console.error('💥', e.message);\n}\n\nconsole.log('📌', status.toUpperCase());\nconsole.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\\n');\n\nreturn {\n  status: status,\n  productCode: productCode,\n  productName: productName,\n  blingId: blingId,\n  variationsSaved: variationsSaved,\n  message: message,\n  integrationId: integrationId,\n  integrationName: integrationName,\n  timestamp: new Date().toISOString()\n};"
+        "jsCode": "const blingResponse = $input.item.json;\nconst metadata = $('Guardar Metadados').item.json;\n\nconst result = {\n  productCode: metadata.productCode,\n  productName: metadata.productName,\n  integrationName: metadata.integrationName,\n  blingResponse: blingResponse,\n  status: (blingResponse.data && blingResponse.data.id) ? 'success' : 'error',\n  blingId: blingResponse.data?.id || null,\n  warnings: blingResponse.data?.warnings || [],\n  timestamp: new Date().toISOString()\n};\n\nreturn { json: result };"
       },
-      "id": "2648e958-f098-42f3-84cc-edd3692b7ea2",
+      "id": "fb1c7ccb-610f-46c4-a29a-9956b970057d",
       "name": "Processar Resposta",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1248,
-        560
+        1168,
+        544
       ]
     },
     {
@@ -373,41 +306,41 @@
         "aggregate": "aggregateAllItemData",
         "options": {}
       },
-      "id": "a00ba4e1-cb4f-4ded-85b1-aa6aa2b8dde6",
+      "id": "e43c05ae-02da-4031-aae7-8c5554a7668e",
       "name": "Agregar",
       "type": "n8n-nodes-base.aggregate",
       "typeVersion": 1,
       "position": [
-        1456,
-        560
+        1360,
+        544
       ]
     },
     {
       "parameters": {
-        "jsCode": "// ============================================\n// CRIAR RELATÓRIO - CORRIGIDO\n// ============================================\n// Cole este código no nó \"Criar Relatório\"\n\nconst items = $input.all();\n\nlet sucessos = 0;\nlet erros = 0;\nlet duplicados = 0;\nconst detalhes = [];\nconst sucessosLista = [];\nconst duplicadosLista = [];\nconst errosLista = [];\nconst porIntegracao = {};\n\nitems.forEach(item => {\n  // ===== CORREÇÃO: Extrai dados corretamente =====\n  let d = item.json;\n  \n  // Se os dados estiverem dentro de \"data\", extrai\n  if (d.data && Array.isArray(d.data) && d.data.length > 0) {\n    d = d.data[0];\n  }\n  \n  console.log('📦 Processando item:', d.productName || 'N/A', '| Status:', d.status);\n  \n  if (!porIntegracao[d.integrationName]) {\n    porIntegracao[d.integrationName] = { sucessos: 0, erros: 0, duplicados: 0 };\n  }\n  \n  const detalhe = {\n    codigo: d.productCode,\n    nome: d.productName,\n    status: d.status,\n    blingId: d.blingId,\n    variationsSaved: d.variationsSaved || 0,\n    mensagem: d.message,\n    integrationName: d.integrationName\n  };\n  \n  if (d.status === 'sucesso') {\n    sucessos++;\n    porIntegracao[d.integrationName].sucessos++;\n    sucessosLista.push(detalhe);\n  } else if (d.status === 'duplicado') {\n    duplicados++;\n    porIntegracao[d.integrationName].duplicados++;\n    duplicadosLista.push(detalhe);\n  } else {\n    erros++;\n    porIntegracao[d.integrationName].erros++;\n    errosLista.push(detalhe);\n  }\n  detalhes.push(detalhe);\n});\n\nconst total = items.length;\nconst taxaSucesso = total > 0 ? ((sucessos / total) * 100).toFixed(2) : '0.00';\n\nconsole.log('\\n╔═══════════════════════════════════╗');\nconsole.log('║      📊 RELATÓRIO FINAL           ║');\nconsole.log('╚═══════════════════════════════════╝');\nconsole.log('✅ Sucessos:', sucessos);\nconsole.log('🔄 Duplicados:', duplicados);\nconsole.log('❌ Erros:', erros);\nconsole.log('📈 Taxa de sucesso:', taxaSucesso + '%\\n');\n\nreturn {\n  success: erros === 0,\n  timestamp: new Date().toISOString(),\n  resumo: {\n    total: total,\n    totalIntegracoes: Object.keys(porIntegracao).length,\n    totalEnvios: total,\n    sucessos: sucessos,\n    duplicados: duplicados,\n    erros: erros,\n    taxaSucesso: `${taxaSucesso}%`\n  },\n  detalhes: {\n    todos: detalhes,\n    sucessos: sucessosLista,\n    duplicados: duplicadosLista,\n    erros: errosLista,\n    porIntegracao: porIntegracao\n  }\n};"
+        "jsCode": "const allData = $input.all().map(item => item.json);\n\nconst resumo = {\n  total: allData.length,\n  sucessos: allData.filter(r => r.status === 'success').length,\n  erros: allData.filter(r => r.status === 'error').length,\n  totalIntegracoes: new Set(allData.map(r => r.integrationName)).size,\n  taxaSucesso: '0%'\n};\n\nresumo.taxaSucesso = `${((resumo.sucessos / resumo.total) * 100).toFixed(1)}%`;\n\nconst detalhes = {\n  sucessos: allData.filter(r => r.status === 'success').map(r => ({\n    nome: r.productName,\n    codigo: r.productCode,\n    integracao: r.integrationName,\n    blingId: r.blingResponse?.data?.id,\n    warnings: r.warnings\n  })),\n  erros: allData.filter(r => r.status === 'error').map(r => ({\n    nome: r.productName,\n    codigo: r.productCode,\n    integracao: r.integrationName,\n    mensagem: r.blingResponse?.error?.message || 'Erro desconhecido'\n  }))\n};\n\nreturn { json: { resumo, detalhes } };"
       },
-      "id": "990ef265-2745-4ee2-b78f-441f0f3f5cfc",
+      "id": "a7bd8562-35e3-4fff-8833-6645a4e17833",
       "name": "Criar Relatório",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1664,
-        560
+        1568,
+        544
       ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ $json }}",
+        "responseBody": "={{ JSON.stringify($json) }}",
         "options": {}
       },
-      "id": "bda8bdf1-119b-45e9-9260-05521002ffc5",
+      "id": "0530c5e7-b88f-4475-8ef8-37d6a2693625",
       "name": "Responder",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        1872,
-        560
+        1760,
+        544
       ]
     }
   ],
@@ -500,7 +433,7 @@
         ],
         [
           {
-            "node": "JSON Simples",
+            "node": "JSON Produto Simples",
             "type": "main",
             "index": 0
           }
@@ -518,7 +451,7 @@
         ]
       ]
     },
-    "JSON Simples": {
+    "JSON Produto Simples": {
       "main": [
         [
           {

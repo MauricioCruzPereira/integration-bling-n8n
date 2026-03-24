@@ -1,25 +1,24 @@
 {
-  "name": "whatsapp-product-importer",
-  "version": "1.0.0",
-  "description": "Sistema de importação de produtos via WhatsApp para n8n",
-  "main": "index.js",
+  "name": "telegram-product-importer",
+  "version": "2.0.0",
+  "description": "Sistema de importação de produtos via Telegram para Bling",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node chatbot-telegram.js",
-    "dev": "nodemon chatbot-telegram.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^1.35.7",
+    "@supabase/supabase-js": "^2.39.0",
     "axios": "^1.12.2",
-    "dotenv": "^17.2.3",
+    "dotenv": "^16.3.1",
+    "iconv-lite": "^0.6.3",
     "node-telegram-bot-api": "^0.66.0",
-    "qrcode-terminal": "^0.12.0",
-    "xlsx": "^0.18.5",
-    "iconv-lite": "^0.6.3"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   }
 }

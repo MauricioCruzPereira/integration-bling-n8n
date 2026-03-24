@@ -18,6 +18,7 @@ services:
     networks:
       - app-network
     volumes:
+      - ./temp:/app/temp
       - ./bot/logs:/app/logs
 
   n8n:
@@ -37,6 +38,8 @@ services:
       WEBHOOK_URL: http://n8n:5678/
       GENERIC_TIMEZONE: America/Sao_Paulo
       TZ: America/Sao_Paulo
+      N8N_LOG_LEVEL: debug
+      N8N_LOG_OUTPUT: console
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n:/backup
