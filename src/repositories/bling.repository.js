@@ -269,22 +269,30 @@ class BlingRepository {
                 
                 // Retry apenas em casos específicos (não faz retry em 400)
                 const shouldRetry = (isTimeout || isRateLimit || isServerError) && !isLastAttempt;
-                
+
                 if (shouldRetry) {
                     const waitTime = attempt * 2;
                     console.log(`   ⏱️ ${isTimeout ? 'Timeout' : isRateLimit ? 'Rate limit' : 'Erro servidor'} - aguardando ${waitTime}s...`);
                     await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
                     continue;
                 }
-                
+
                 console.error('❌ Erro ao criar produto no Bling:', error.message);
-                
+
+                // ✅ SALVAR PAYLOAD PARA DEBUG EM ERROS 500 TAMBÉM
+                if (isServerError) {
+                    console.error('   Status:', error.response?.status);
+                    console.error('   Resposta Bling:', JSON.stringify(error.response?.data, null, 2));
+                    this.savePayloadForDebug(productData, error.response?.data);
+                }
+
                 return {
                     success: false,
                     error: {
                         message: error.response?.data?.error?.message || error.message,
                         details: error.response?.data?.error?.description || null,
                         status: error.response?.status || null,
+                        rawResponse: error.response?.data || null,
                         isTimeout: isTimeout,
                         isRateLimit: isRateLimit
                     }
