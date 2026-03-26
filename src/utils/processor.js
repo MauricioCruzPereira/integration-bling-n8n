@@ -158,7 +158,6 @@ function formatProduct(group) {
     // ✅ ADICIONAR IMAGENS NO PRODUTO PAI
     if (todasImagens.length > 0) {
         product.midia = {
-            video: [],
             imagens: {
                 imagensURL: todasImagens
             }
@@ -167,22 +166,6 @@ function formatProduct(group) {
     }
 
     if (variacoes.length > 0) {
-        const tiposVariacao = new Set();
-        variacoes.forEach(v => {
-            const parts = v.variacaoNome.split(';');
-            parts.forEach(part => {
-                const [tipo] = part.split(':');
-                if (tipo) tiposVariacao.add(tipo.trim());
-            });
-        });
-
-        if (tiposVariacao.size > 0) {
-            const primeiroTipo = Array.from(tiposVariacao)[0];
-            product.variacao = {
-                nome: primeiroTipo.charAt(0).toUpperCase() + primeiroTipo.slice(1)
-            };
-        }
-
         product.variacoes = variacoes.map((v, index) => {
             const varRow = v.row;
 
@@ -210,8 +193,9 @@ function formatProduct(group) {
                 },
                 variacao: {
                     nome: v.variacaoNome,
+                    ordem: index + 1,
                     produtoPai: {
-                        id: 0
+                        cloneInfo: true
                     }
                 }
             };
@@ -220,17 +204,10 @@ function formatProduct(group) {
             if (todasImagens.length > 0) {
                 variacaoObj.midia = {
                     imagens: {
-                        externas: [],
-                        imagensURL: todasImagens  // ← MESMAS IMAGENS DO PAI!
+                        imagensURL: todasImagens
                     }
                 };
                 console.log(`      🖼️ ${todasImagens.length} imagem(ns) adicionadas`);
-            } else {
-                variacaoObj.midia = {
-                    imagens: {
-                        externas: []
-                    }
-                };
             }
 
             return variacaoObj;

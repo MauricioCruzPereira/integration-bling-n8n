@@ -32,7 +32,7 @@ class AuthService {
             console.error('❌ Erro ao verificar autorização:', error);
             return {
                 authorized: false,
-                phone: null,
+                phone: user?.id?.toString() || null,
                 userData: null
             };
         }
